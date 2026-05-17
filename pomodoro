@@ -236,17 +236,41 @@ def fmt_mmss(seconds: int) -> str:
     return f"{m:02d}:{s:02d}"
 
 
+def focuses_completed_on(date_str: str) -> int:
+    if not LOG_PATH.exists():
+        return 0
+    count = 0
+    with LOG_PATH.open() as f:
+        for line in f:
+            line = line.strip()
+            if not line or not line.startswith("{"):
+                continue
+            try:
+                e = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if (
+                e.get("event") == "phase_end"
+                and e.get("phase") == "focus"
+                and e.get("ts", "").startswith(date_str)
+            ):
+                count += 1
+    return count
+
+
 def cmd_status(cfg: dict, mode: str) -> None:
     state = load_state()
     if state is not None:
         state = advance_if_done(state, cfg)
+    today = datetime.now().date().isoformat()
+    focuses_today = focuses_completed_on(today)
     if state is None:
         if mode == "json":
-            print(json.dumps({"status": "idle"}))
+            print(json.dumps({"status": "idle", "focuses_today": focuses_today}))
         elif mode == "i3blocks":
             pass
         else:
-            print("idle")
+            print(f"idle ({focuses_today} today)" if focuses_today else "idle")
         return
     rem = remaining(state, cfg)
     paused = state.get("paused_at") is not None
@@ -261,6 +285,7 @@ def cmd_status(cfg: dict, mode: str) -> None:
             "color": color,
             "completed_focuses": state.get("completed_focuses", 0),
             "cycle_length": int(cfg["cycle_length"]),
+            "focuses_today": focuses_today,
         }))
     elif mode == "i3blocks":
         print(text)
