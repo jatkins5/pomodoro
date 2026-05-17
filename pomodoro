@@ -1,0 +1,363 @@
+#!/usr/bin/env python3
+"""Custom pomodoro timer with i3blocks integration.
+
+Subcommands:
+  toggle      Start, pause, or resume the timer.
+  stop        Cancel the current pomodoro entirely.
+  skip        Skip the current phase and advance to the next.
+  status      Print human-readable status.
+  status --json
+  status --i3blocks   Three-line output for i3blocks.
+  analyze [--today|--week|--all]   Summarize the log.
+
+Config:  ~/.config/pomodoro/config.json (auto-created with defaults)
+State:   ~/.local/state/pomodoro/state.json
+Log:     ~/.local/state/pomodoro/log.jsonl
+"""
+
+import json
+import os
+import shutil
+import subprocess
+import sys
+import time
+from collections import defaultdict
+from datetime import datetime, timedelta
+from pathlib import Path
+
+CONFIG_PATH = Path(
+    os.environ.get("POMODORO_CONFIG")
+    or Path.home() / ".config" / "pomodoro" / "config.json"
+)
+STATE_DIR = Path(
+    os.environ.get("POMODORO_STATE_DIR")
+    or Path.home() / ".local" / "state" / "pomodoro"
+)
+STATE_PATH = STATE_DIR / "state.json"
+LOG_PATH = STATE_DIR / "log.jsonl"
+
+DEFAULTS = {
+    "focus_minutes": 25,
+    "short_break_minutes": 5,
+    "long_break_minutes": 15,
+    "cycle_length": 4,
+    "auto_advance": True,
+    "notify": True,
+    "colors": {
+        "focus": "#FF6B6B",
+        "short_break": "#51CF66",
+        "long_break": "#339AF0",
+        "paused": "#FFD43B",
+    },
+}
+
+
+def load_config() -> dict:
+    if not CONFIG_PATH.exists():
+        CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        CONFIG_PATH.write_text(json.dumps(DEFAULTS, indent=2) + "\n")
+        return dict(DEFAULTS)
+    cfg = json.loads(CONFIG_PATH.read_text())
+    merged = {**DEFAULTS, **cfg}
+    merged["colors"] = {**DEFAULTS["colors"], **cfg.get("colors", {})}
+    return merged
+
+
+def load_state() -> dict | None:
+    if not STATE_PATH.exists():
+        return None
+    return json.loads(STATE_PATH.read_text())
+
+
+def save_state(state: dict | None) -> None:
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    if state is None:
+        STATE_PATH.unlink(missing_ok=True)
+        return
+    tmp = STATE_PATH.with_suffix(".tmp")
+    tmp.write_text(json.dumps(state, indent=2))
+    tmp.replace(STATE_PATH)
+
+
+def iso(epoch: float) -> str:
+    return datetime.fromtimestamp(epoch).astimezone().isoformat(timespec="seconds")
+
+
+def now_iso() -> str:
+    return iso(time.time())
+
+
+def log_event(event: str, **fields) -> None:
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    entry = {"ts": now_iso(), "event": event, **fields}
+    with LOG_PATH.open("a") as f:
+        f.write(json.dumps(entry) + "\n")
+
+
+def phase_seconds(cfg: dict, phase: str) -> int:
+    return int(cfg[f"{phase}_minutes"] * 60)
+
+
+def notify(cfg: dict, summary: str, body: str = "") -> None:
+    if not cfg.get("notify", True):
+        return
+    if not shutil.which("notify-send"):
+        return
+    subprocess.Popen(
+        ["notify-send", "-a", "Pomodoro", "--", summary, body],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+
+def next_phase(state: dict, cfg: dict) -> tuple[str, int]:
+    completed = state.get("completed_focuses", 0)
+    if state["phase"] == "focus":
+        completed += 1
+        if completed % int(cfg["cycle_length"]) == 0:
+            return "long_break", completed
+        return "short_break", completed
+    return "focus", completed
+
+
+def remaining(state: dict, cfg: dict) -> int:
+    if state.get("paused_at") is not None:
+        return int(state["remaining_at_pause"])
+    elapsed = time.time() - state["phase_started_epoch"]
+    return max(0, phase_seconds(cfg, state["phase"]) - int(elapsed))
+
+
+def advance_if_done(state: dict, cfg: dict) -> dict | None:
+    while state is not None and state.get("paused_at") is None and remaining(state, cfg) == 0:
+        ended = state["phase"]
+        ended_dur = phase_seconds(cfg, ended)
+        log_event(
+            "phase_end",
+            phase=ended,
+            completed_focuses=state.get("completed_focuses", 0)
+            + (1 if ended == "focus" else 0),
+        )
+        np, completed = next_phase(state, cfg)
+        if cfg.get("auto_advance", True):
+            new_start = state["phase_started_epoch"] + ended_dur
+            state = {
+                "phase": np,
+                "phase_started_epoch": new_start,
+                "completed_focuses": completed,
+                "paused_at": None,
+                "remaining_at_pause": None,
+            }
+            log_event("phase_start", phase=np, completed_focuses=completed)
+            notify(
+                cfg,
+                f"{ended.replace('_', ' ').title()} complete",
+                f"Starting {np.replace('_', ' ')}",
+            )
+        else:
+            log_event("stop_auto", phase=ended, completed_focuses=completed)
+            notify(cfg, f"{ended.replace('_', ' ').title()} complete", "Pomodoro stopped")
+            state = None
+            break
+    save_state(state)
+    return state
+
+
+def cmd_toggle(cfg: dict) -> None:
+    state = load_state()
+    if state is None:
+        new = {
+            "phase": "focus",
+            "phase_started_epoch": time.time(),
+            "completed_focuses": 0,
+            "paused_at": None,
+            "remaining_at_pause": None,
+        }
+        save_state(new)
+        log_event("start", phase="focus")
+        notify(cfg, "Pomodoro started", "Focus 1")
+        return
+    state = advance_if_done(state, cfg)
+    if state is None:
+        cmd_toggle(cfg)
+        return
+    if state.get("paused_at") is None:
+        rem = remaining(state, cfg)
+        state["remaining_at_pause"] = rem
+        state["paused_at"] = time.time()
+        save_state(state)
+        log_event("pause", phase=state["phase"], remaining=rem)
+        notify(cfg, "Pomodoro paused", f"{state['phase'].replace('_', ' ')} — {fmt_mmss(rem)} left")
+    else:
+        pause_dur = time.time() - state["paused_at"]
+        state["phase_started_epoch"] += pause_dur
+        state["paused_at"] = None
+        state["remaining_at_pause"] = None
+        save_state(state)
+        log_event("resume", phase=state["phase"])
+        notify(cfg, "Pomodoro resumed", state["phase"].replace("_", " "))
+
+
+def cmd_stop(cfg: dict) -> None:
+    state = load_state()
+    if state is None:
+        return
+    log_event(
+        "stop",
+        phase=state["phase"],
+        completed_focuses=state.get("completed_focuses", 0),
+        remaining=remaining(state, cfg),
+    )
+    save_state(None)
+    notify(cfg, "Pomodoro stopped")
+
+
+def cmd_skip(cfg: dict) -> None:
+    state = load_state()
+    if state is None:
+        return
+    ended = state["phase"]
+    completed_so_far = state.get("completed_focuses", 0) + (1 if ended == "focus" else 0)
+    log_event("skip", phase=ended, completed_focuses=completed_so_far)
+    np, completed = next_phase(state, cfg)
+    new = {
+        "phase": np,
+        "phase_started_epoch": time.time(),
+        "completed_focuses": completed,
+        "paused_at": None,
+        "remaining_at_pause": None,
+    }
+    save_state(new)
+    log_event("phase_start", phase=np, completed_focuses=completed)
+    notify(cfg, f"Skipped to {np.replace('_', ' ')}")
+
+
+def fmt_mmss(seconds: int) -> str:
+    m, s = divmod(int(seconds), 60)
+    return f"{m:02d}:{s:02d}"
+
+
+def cmd_status(cfg: dict, mode: str) -> None:
+    state = load_state()
+    if state is not None:
+        state = advance_if_done(state, cfg)
+    if state is None:
+        if mode == "json":
+            print(json.dumps({"status": "idle"}))
+        elif mode == "i3blocks":
+            pass
+        else:
+            print("idle")
+        return
+    rem = remaining(state, cfg)
+    paused = state.get("paused_at") is not None
+    color = cfg["colors"]["paused"] if paused else cfg["colors"][state["phase"]]
+    text = fmt_mmss(rem)
+    if mode == "json":
+        print(json.dumps({
+            "status": "paused" if paused else "running",
+            "phase": state["phase"],
+            "remaining": rem,
+            "text": text,
+            "color": color,
+            "completed_focuses": state.get("completed_focuses", 0),
+            "cycle_length": int(cfg["cycle_length"]),
+        }))
+    elif mode == "i3blocks":
+        print(text)
+        print(text)
+        print(color)
+    else:
+        cycle = int(cfg["cycle_length"])
+        done = state.get("completed_focuses", 0)
+        label = state["phase"].replace("_", " ")
+        suffix = " (paused)" if paused else ""
+        print(f"{label} {text} — {done % cycle if state['phase'] == 'focus' else done}/{cycle}{suffix}")
+
+
+def cmd_analyze(args: list[str]) -> None:
+    if not LOG_PATH.exists():
+        print("No log yet.")
+        return
+    today = datetime.now().date()
+    if "--today" in args:
+        start = today
+    elif "--week" in args:
+        start = today - timedelta(days=6)
+    else:
+        start = None
+
+    daily = defaultdict(lambda: {
+        "focus": 0, "short_break": 0, "long_break": 0,
+        "starts": 0, "stops": 0, "pauses": 0, "skips": 0,
+    })
+    with LOG_PATH.open() as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                e = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            day = e["ts"][:10]
+            if start is not None and datetime.fromisoformat(day).date() < start:
+                continue
+            ev = e.get("event")
+            if ev == "phase_end":
+                daily[day][e.get("phase", "focus")] += 1
+            elif ev == "start":
+                daily[day]["starts"] += 1
+            elif ev == "stop":
+                daily[day]["stops"] += 1
+            elif ev == "pause":
+                daily[day]["pauses"] += 1
+            elif ev == "skip":
+                daily[day]["skips"] += 1
+    if not daily:
+        print("No matching log entries.")
+        return
+    print(f"{'date':<12} {'focus':>6} {'short':>6} {'long':>6} {'paused':>7} {'skip':>5} {'stop':>5} {'starts':>7}")
+    totals = defaultdict(int)
+    for day in sorted(daily):
+        d = daily[day]
+        print(
+            f"{day:<12} {d['focus']:>6} {d['short_break']:>6} {d['long_break']:>6} "
+            f"{d['pauses']:>7} {d['skips']:>5} {d['stops']:>5} {d['starts']:>7}"
+        )
+        for k, v in d.items():
+            totals[k] += v
+    print(
+        f"{'total':<12} {totals['focus']:>6} {totals['short_break']:>6} {totals['long_break']:>6} "
+        f"{totals['pauses']:>7} {totals['skips']:>5} {totals['stops']:>5} {totals['starts']:>7}"
+    )
+
+
+USAGE = "usage: pomodoro {toggle|stop|skip|status [--json|--i3blocks]|analyze [--today|--week|--all]}"
+
+
+def main() -> None:
+    cfg = load_config()
+    if len(sys.argv) < 2:
+        print(USAGE, file=sys.stderr)
+        sys.exit(1)
+    cmd, rest = sys.argv[1], sys.argv[2:]
+    if cmd == "toggle":
+        cmd_toggle(cfg)
+    elif cmd == "stop":
+        cmd_stop(cfg)
+    elif cmd == "skip":
+        cmd_skip(cfg)
+    elif cmd == "status":
+        mode = "json" if "--json" in rest else "i3blocks" if "--i3blocks" in rest else "text"
+        cmd_status(cfg, mode)
+    elif cmd == "analyze":
+        cmd_analyze(rest)
+    elif cmd in ("-h", "--help", "help"):
+        print(__doc__)
+    else:
+        print(f"unknown command: {cmd}\n{USAGE}", file=sys.stderr)
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
