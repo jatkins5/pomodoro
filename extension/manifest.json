@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "Pomodoro New Tab",
+  "version": "1.0.0",
+  "description": "Show a pomodoro prompt on the new tab page when none has been logged today.",
+  "chrome_url_overrides": {
+    "newtab": "newtab.html"
+  },
+  "host_permissions": [
+    "http://127.0.0.1/*"
+  ]
+}
