@@ -1,0 +1,12 @@
+[Unit]
+Description=Pomodoro localhost HTTP server
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/pomodoro/server.py
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target
