@@ -6,6 +6,7 @@ Endpoints:
   POST /toggle   -> run `pomodoro toggle`, return new status
   POST /stop     -> run `pomodoro stop`,   return new status
   POST /skip     -> run `pomodoro skip`,   return new status
+  POST /reset    -> run `pomodoro reset`,  return new status
 
 Binds to 127.0.0.1 only. Port defaults to 17234, override with POMODORO_PORT.
 CORS is open (*) — safe because we only listen on the loopback interface.
@@ -64,7 +65,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send(404, {"error": "not found"})
 
     def do_POST(self) -> None:
-        actions = {"/toggle": "toggle", "/stop": "stop", "/skip": "skip"}
+        actions = {"/toggle": "toggle", "/stop": "stop", "/skip": "skip", "/reset": "reset"}
         action = actions.get(self.path)
         if action is None:
             self._send(404, {"error": "not found"})

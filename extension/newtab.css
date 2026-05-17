@@ -85,12 +85,38 @@ button.primary {
   margin-bottom: 0.5rem;
 }
 
+.timer .time-row {
+  position: relative;
+  margin: 0.5rem 0 1rem;
+}
+
 .timer .time {
   font-size: 5.5rem;
   font-weight: 200;
   font-variant-numeric: tabular-nums;
   line-height: 1;
-  margin: 0.5rem 0 1rem;
+}
+
+.timer .icon {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  padding: 0.35rem 0.5rem;
+  margin: 0;
+  font-size: 1.4rem;
+  line-height: 1;
+  color: #aaa;
+  opacity: 0.6;
+  border-radius: 6px;
+}
+
+.timer .icon:hover {
+  background: rgba(0, 0, 0, 0.04);
+  opacity: 1;
+  border-color: transparent;
 }
 
 .timer .meta {

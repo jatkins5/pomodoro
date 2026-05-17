@@ -5,6 +5,7 @@ Subcommands:
   toggle      Start, pause, or resume the timer.
   stop        Cancel the current pomodoro entirely.
   skip        Skip the current phase and advance to the next.
+  reset       Restart the current phase from the beginning.
   status      Print human-readable status.
   status --json
   status --i3blocks   Three-line output for i3blocks.
@@ -231,6 +232,19 @@ def cmd_skip(cfg: dict) -> None:
     notify(cfg, f"Skipped to {np.replace('_', ' ')}")
 
 
+def cmd_reset(cfg: dict) -> None:
+    state = load_state()
+    if state is None:
+        return
+    log_event("reset", phase=state["phase"])
+    state["phase_started_epoch"] = time.time()
+    if state.get("paused_at") is not None:
+        state["paused_at"] = time.time()
+        state["remaining_at_pause"] = phase_seconds(cfg, state["phase"])
+    save_state(state)
+    notify(cfg, f"{state['phase'].replace('_', ' ').title()} reset")
+
+
 def fmt_mmss(seconds: int) -> str:
     m, s = divmod(int(seconds), 60)
     return f"{m:02d}:{s:02d}"
@@ -357,7 +371,7 @@ def cmd_analyze(args: list[str]) -> None:
     )
 
 
-USAGE = "usage: pomodoro {toggle|stop|skip|status [--json|--i3blocks]|analyze [--today|--week|--all]}"
+USAGE = "usage: pomodoro {toggle|stop|skip|reset|status [--json|--i3blocks]|analyze [--today|--week|--all]}"
 
 
 def main() -> None:
@@ -372,6 +386,8 @@ def main() -> None:
         cmd_stop(cfg)
     elif cmd == "skip":
         cmd_skip(cfg)
+    elif cmd == "reset":
+        cmd_reset(cfg)
     elif cmd == "status":
         mode = "json" if "--json" in rest else "i3blocks" if "--i3blocks" in rest else "text"
         cmd_status(cfg, mode)

@@ -95,7 +95,10 @@ function render(state) {
   const card = el(`
     <div class="card timer" style="border-color: ${color}">
       <div class="phase" style="color: ${color}">${phaseLabel}${running ? "" : " — paused"}</div>
-      <div class="time" id="time" style="color: ${color}">${fmtMmss(state.remaining)}</div>
+      <div class="time-row">
+        <div class="time" id="time" style="color: ${color}">${fmtMmss(state.remaining)}</div>
+        <button class="icon" data-action="/reset" title="Reset timer" aria-label="Reset timer">↻</button>
+      </div>
       <div class="meta">${state.focuses_today || 0} done today · cycle ${(state.completed_focuses % state.cycle_length) + (state.phase === "focus" ? 1 : 0)}/${state.cycle_length}</div>
       <div class="buttons">
         <button data-action="/toggle">${running ? "Pause" : "Resume"}</button>
