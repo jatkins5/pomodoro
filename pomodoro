@@ -47,7 +47,7 @@ DEFAULTS = {
         "focus": "#FF6B6B",
         "short_break": "#51CF66",
         "long_break": "#339AF0",
-        "paused": "#FFD43B",
+        "paused": "#F59F00",
     },
 }
 

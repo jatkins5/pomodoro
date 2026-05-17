@@ -1,6 +1,6 @@
 :root {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", sans-serif;
-  color-scheme: dark;
+  color-scheme: light;
 }
 
 * { box-sizing: border-box; }
@@ -8,8 +8,8 @@
 html, body {
   margin: 0;
   min-height: 100vh;
-  background: #0f0f0f;
-  color: #eee;
+  background: #fafafa;
+  color: #222;
 }
 
 body {
@@ -28,8 +28,9 @@ main {
 .card {
   padding: 2.5rem;
   border-radius: 16px;
-  border: 1px solid #222;
-  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid #e2e2e2;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
   transition: border-color 200ms ease;
 }
 
@@ -41,9 +42,9 @@ main {
 }
 
 button {
-  background: transparent;
+  background: #fff;
   color: inherit;
-  border: 1px solid #555;
+  border: 1px solid #ccc;
   padding: 0.65rem 1.3rem;
   border-radius: 8px;
   font-size: 1rem;
@@ -54,8 +55,8 @@ button {
 }
 
 button:hover {
-  background: rgba(255, 255, 255, 0.06);
-  border-color: #888;
+  background: #f2f2f2;
+  border-color: #999;
 }
 
 button:active {
@@ -74,7 +75,7 @@ button.primary {
 }
 
 .done h1 {
-  color: #aaa;
+  color: #777;
 }
 
 .timer .phase {
@@ -93,7 +94,7 @@ button.primary {
 }
 
 .timer .meta {
-  color: #888;
+  color: #777;
   font-size: 0.85rem;
   margin-bottom: 1.5rem;
 }
@@ -106,27 +107,28 @@ button.primary {
 }
 
 .error {
-  border-color: #553;
+  border-color: #e6c9c9;
+  background: #fdf6f6;
 }
 
 .error h1 {
-  color: #d8a;
+  color: #b03030;
   font-size: 1.25rem;
 }
 
 .error .hint {
-  color: #888;
+  color: #777;
   font-size: 0.85rem;
   margin: 0;
 }
 
 .error code {
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(0, 0, 0, 0.05);
   padding: 0.1rem 0.4rem;
   border-radius: 4px;
 }
 
 .loading h1 {
-  color: #555;
+  color: #aaa;
   font-size: 1rem;
 }
