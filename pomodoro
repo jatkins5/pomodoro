@@ -38,6 +38,7 @@ STATE_DIR = Path(
 STATE_PATH = STATE_DIR / "state.json"
 LOG_PATH = STATE_DIR / "log.jsonl"
 MUTE_MARKER = STATE_DIR / "mute_since_id"
+MEDIA_MARKER = STATE_DIR / "paused_media"
 
 DEFAULTS = {
     "focus_minutes": 25,
@@ -176,6 +177,61 @@ def _apply_mute_for_phase(phase: str) -> None:
         disable_focus_mute(show_backlog=True)
 
 
+def _playerctl(*args: str) -> tuple[int, str]:
+    if not shutil.which("playerctl"):
+        return 1, ""
+    r = subprocess.run(
+        ["playerctl", *args], capture_output=True, text=True
+    )
+    return r.returncode, r.stdout
+
+
+def _playing_players() -> list[str]:
+    rc, out = _playerctl("--all-players", "-f", "{{playerName}}|{{status}}", "status")
+    if rc != 0:
+        return []
+    playing = []
+    for line in out.splitlines():
+        line = line.strip()
+        if not line or "|" not in line:
+            continue
+        name, _, status = line.rpartition("|")
+        if status == "Playing" and name:
+            playing.append(name)
+    return playing
+
+
+def pause_active_media() -> None:
+    if not shutil.which("playerctl"):
+        return
+    players = _playing_players()
+    if not players:
+        return
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    MEDIA_MARKER.write_text(json.dumps(players))
+    for p in players:
+        _playerctl("--player", p, "pause")
+
+
+def resume_paused_media() -> None:
+    if not shutil.which("playerctl") or not MEDIA_MARKER.exists():
+        return
+    try:
+        players = json.loads(MEDIA_MARKER.read_text())
+    except (json.JSONDecodeError, OSError):
+        players = []
+    MEDIA_MARKER.unlink(missing_ok=True)
+    for p in players:
+        _playerctl("--player", p, "play")
+
+
+def _apply_media_for_phase(phase: str) -> None:
+    if phase in ("short_break", "long_break"):
+        pause_active_media()
+    else:
+        resume_paused_media()
+
+
 def next_phase(state: dict, cfg: dict) -> tuple[str, int]:
     completed = state.get("completed_focuses", 0)
     if state["phase"] == "focus":
@@ -220,10 +276,12 @@ def advance_if_done(state: dict, cfg: dict) -> dict | None:
                 f"Starting {np.replace('_', ' ')}",
             )
             _apply_mute_for_phase(np)
+            _apply_media_for_phase(np)
         else:
             log_event("stop_auto", phase=ended, completed_focuses=completed)
             notify(cfg, f"{ended.replace('_', ' ').title()} complete", "Pomodoro stopped")
             disable_focus_mute(show_backlog=(ended == "focus"))
+            resume_paused_media()
             state = None
             break
     save_state(state)
@@ -282,6 +340,7 @@ def cmd_stop(cfg: dict) -> None:
     save_state(None)
     notify(cfg, "Pomodoro stopped")
     disable_focus_mute(show_backlog=False)
+    resume_paused_media()
 
 
 def cmd_skip(cfg: dict) -> None:
@@ -303,6 +362,7 @@ def cmd_skip(cfg: dict) -> None:
     log_event("phase_start", phase=np, completed_focuses=completed)
     notify(cfg, f"Skipped to {np.replace('_', ' ')}")
     _apply_mute_for_phase(np)
+    _apply_media_for_phase(np)
 
 
 def cmd_reset(cfg: dict) -> None:
