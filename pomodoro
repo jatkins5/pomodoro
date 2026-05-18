@@ -10,6 +10,7 @@ Subcommands:
   status --json
   status --i3blocks   Three-line output for i3blocks.
   analyze [--today|--week|--all]   Summarize the log.
+  notifications [--since-id N]     Show muted notification backlog in rofi.
 
 Config:  ~/.config/pomodoro/config.json (auto-created with defaults)
 State:   ~/.local/state/pomodoro/state.json
@@ -36,6 +37,7 @@ STATE_DIR = Path(
 )
 STATE_PATH = STATE_DIR / "state.json"
 LOG_PATH = STATE_DIR / "log.jsonl"
+MUTE_MARKER = STATE_DIR / "mute_since_id"
 
 DEFAULTS = {
     "focus_minutes": 25,
@@ -111,6 +113,69 @@ def notify(cfg: dict, summary: str, body: str = "") -> None:
     )
 
 
+def _dunstctl(*args: str) -> tuple[int, str]:
+    if not shutil.which("dunstctl"):
+        return 1, ""
+    r = subprocess.run(
+        ["dunstctl", *args], capture_output=True, text=True
+    )
+    return r.returncode, r.stdout
+
+
+def _dunst_history() -> list[dict]:
+    rc, out = _dunstctl("history")
+    if rc != 0:
+        return []
+    try:
+        return json.loads(out).get("data", [[]])[0]
+    except (json.JSONDecodeError, IndexError, AttributeError):
+        return []
+
+
+def _max_history_id() -> int:
+    return max(
+        (n.get("id", {}).get("data", 0) for n in _dunst_history()),
+        default=0,
+    )
+
+
+def enable_focus_mute() -> None:
+    if not shutil.which("dunstctl"):
+        return
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    if not MUTE_MARKER.exists():
+        MUTE_MARKER.write_text(str(_max_history_id()))
+    _dunstctl("rule", "focus_mute", "enable")
+
+
+def disable_focus_mute(show_backlog: bool = False) -> None:
+    if not shutil.which("dunstctl"):
+        return
+    _dunstctl("rule", "focus_mute", "disable")
+    if not MUTE_MARKER.exists():
+        return
+    try:
+        baseline = int(MUTE_MARKER.read_text().strip())
+    except ValueError:
+        baseline = 0
+    MUTE_MARKER.unlink(missing_ok=True)
+    if show_backlog and shutil.which("rofi"):
+        subprocess.Popen(
+            [str(Path(__file__).resolve()), "notifications",
+             "--since-id", str(baseline)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+
+
+def _apply_mute_for_phase(phase: str) -> None:
+    if phase == "focus":
+        enable_focus_mute()
+    else:
+        disable_focus_mute(show_backlog=True)
+
+
 def next_phase(state: dict, cfg: dict) -> tuple[str, int]:
     completed = state.get("completed_focuses", 0)
     if state["phase"] == "focus":
@@ -154,9 +219,11 @@ def advance_if_done(state: dict, cfg: dict) -> dict | None:
                 f"{ended.replace('_', ' ').title()} complete",
                 f"Starting {np.replace('_', ' ')}",
             )
+            _apply_mute_for_phase(np)
         else:
             log_event("stop_auto", phase=ended, completed_focuses=completed)
             notify(cfg, f"{ended.replace('_', ' ').title()} complete", "Pomodoro stopped")
+            disable_focus_mute(show_backlog=(ended == "focus"))
             state = None
             break
     save_state(state)
@@ -176,6 +243,7 @@ def cmd_toggle(cfg: dict) -> None:
         save_state(new)
         log_event("start", phase="focus")
         notify(cfg, "Pomodoro started", "Focus 1")
+        enable_focus_mute()
         return
     state = advance_if_done(state, cfg)
     if state is None:
@@ -188,6 +256,7 @@ def cmd_toggle(cfg: dict) -> None:
         save_state(state)
         log_event("pause", phase=state["phase"], remaining=rem)
         notify(cfg, "Pomodoro paused", f"{state['phase'].replace('_', ' ')} — {fmt_mmss(rem)} left")
+        disable_focus_mute(show_backlog=False)
     else:
         pause_dur = time.time() - state["paused_at"]
         state["phase_started_epoch"] += pause_dur
@@ -196,6 +265,8 @@ def cmd_toggle(cfg: dict) -> None:
         save_state(state)
         log_event("resume", phase=state["phase"])
         notify(cfg, "Pomodoro resumed", state["phase"].replace("_", " "))
+        if state["phase"] == "focus":
+            enable_focus_mute()
 
 
 def cmd_stop(cfg: dict) -> None:
@@ -210,6 +281,7 @@ def cmd_stop(cfg: dict) -> None:
     )
     save_state(None)
     notify(cfg, "Pomodoro stopped")
+    disable_focus_mute(show_backlog=False)
 
 
 def cmd_skip(cfg: dict) -> None:
@@ -230,6 +302,7 @@ def cmd_skip(cfg: dict) -> None:
     save_state(new)
     log_event("phase_start", phase=np, completed_focuses=completed)
     notify(cfg, f"Skipped to {np.replace('_', ' ')}")
+    _apply_mute_for_phase(np)
 
 
 def cmd_reset(cfg: dict) -> None:
@@ -243,6 +316,8 @@ def cmd_reset(cfg: dict) -> None:
         state["remaining_at_pause"] = phase_seconds(cfg, state["phase"])
     save_state(state)
     notify(cfg, f"{state['phase'].replace('_', ' ').title()} reset")
+    if state["phase"] == "focus":
+        enable_focus_mute()
 
 
 def fmt_mmss(seconds: int) -> str:
@@ -371,7 +446,56 @@ def cmd_analyze(args: list[str]) -> None:
     )
 
 
-USAGE = "usage: pomodoro {toggle|stop|skip|reset|status [--json|--i3blocks]|analyze [--today|--week|--all]}"
+def cmd_notifications(args: list[str]) -> None:
+    if not shutil.which("dunstctl") or not shutil.which("rofi"):
+        return
+    since_id = 0
+    if "--since-id" in args:
+        try:
+            since_id = int(args[args.index("--since-id") + 1])
+        except (ValueError, IndexError):
+            since_id = 0
+    items = []
+    for n in _dunst_history():
+        nid = n.get("id", {}).get("data", 0)
+        if nid <= since_id:
+            continue
+        appname = n.get("appname", {}).get("data", "")
+        if appname == "Pomodoro":
+            continue
+        items.append({
+            "id": nid,
+            "appname": appname,
+            "summary": n.get("summary", {}).get("data", ""),
+            "body": n.get("body", {}).get("data", ""),
+        })
+    if not items:
+        return
+    items.sort(key=lambda x: x["id"])
+    lines = []
+    for i in items:
+        body = " ".join(i["body"].split())
+        head = f"{i['appname']}: {i['summary']}" if i["appname"] else i["summary"]
+        label = f"{head} — {body}" if body else head
+        lines.append(label[:240])
+    chosen = subprocess.run(
+        ["rofi", "-dmenu", "-i", "-p", f"backlog ({len(items)})",
+         "-format", "i", "-no-custom"],
+        input="\n".join(lines),
+        capture_output=True,
+        text=True,
+    )
+    if chosen.returncode != 0:
+        return
+    try:
+        idx = int(chosen.stdout.strip())
+    except ValueError:
+        return
+    if 0 <= idx < len(items):
+        _dunstctl("history-pop", str(items[idx]["id"]))
+
+
+USAGE = "usage: pomodoro {toggle|stop|skip|reset|status [--json|--i3blocks]|analyze [--today|--week|--all]|notifications [--since-id N]}"
 
 
 def main() -> None:
@@ -393,6 +517,8 @@ def main() -> None:
         cmd_status(cfg, mode)
     elif cmd == "analyze":
         cmd_analyze(rest)
+    elif cmd == "notifications":
+        cmd_notifications(rest)
     elif cmd in ("-h", "--help", "help"):
         print(__doc__)
     else:
