@@ -11,6 +11,7 @@ Subcommands:
   status --i3blocks   Three-line output for i3blocks.
   analyze [--today|--week|--all]   Summarize the log.
   notifications [--since-id N]     Show muted notification backlog in rofi.
+  pause-reason [--duration N]      Prompt for a reason for the last pause; logged.
 
 Config:  ~/.config/pomodoro/config.json (auto-created with defaults)
 State:   ~/.local/state/pomodoro/state.json
@@ -321,10 +322,18 @@ def cmd_toggle(cfg: dict) -> None:
         state["paused_at"] = None
         state["remaining_at_pause"] = None
         save_state(state)
-        log_event("resume", phase=state["phase"])
+        log_event("resume", phase=state["phase"], pause_duration=int(pause_dur))
         notify(cfg, "Pomodoro resumed", state["phase"].replace("_", " "))
         if state["phase"] == "focus":
             enable_focus_mute()
+        if int(pause_dur) > 10 and shutil.which("rofi"):
+            subprocess.Popen(
+                [str(Path(__file__).resolve()), "pause-reason",
+                 "--duration", str(int(pause_dur))],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
 
 
 def cmd_stop(cfg: dict) -> None:
@@ -506,6 +515,28 @@ def cmd_analyze(args: list[str]) -> None:
     )
 
 
+def cmd_pause_reason(args: list[str]) -> None:
+    if not shutil.which("rofi"):
+        return
+    duration = 0
+    if "--duration" in args:
+        try:
+            duration = int(args[args.index("--duration") + 1])
+        except (ValueError, IndexError):
+            duration = 0
+    prompt = f"pause reason ({fmt_mmss(duration)})" if duration else "pause reason"
+    r = subprocess.run(
+        ["rofi", "-dmenu", "-i", "-p", prompt, "-l", "0", "-width", "30"],
+        input="", capture_output=True, text=True,
+    )
+    if r.returncode != 0:
+        return
+    reason = r.stdout.strip()
+    if not reason:
+        return
+    log_event("pause_reason", duration=duration, reason=reason)
+
+
 def cmd_notifications(args: list[str]) -> None:
     if not shutil.which("dunstctl") or not shutil.which("rofi"):
         return
@@ -555,7 +586,7 @@ def cmd_notifications(args: list[str]) -> None:
         _dunstctl("history-pop", str(items[idx]["id"]))
 
 
-USAGE = "usage: pomodoro {toggle|stop|skip|reset|status [--json|--i3blocks]|analyze [--today|--week|--all]|notifications [--since-id N]}"
+USAGE = "usage: pomodoro {toggle|stop|skip|reset|status [--json|--i3blocks]|analyze [--today|--week|--all]|notifications [--since-id N]|pause-reason [--duration N]}"
 
 
 def main() -> None:
@@ -579,6 +610,8 @@ def main() -> None:
         cmd_analyze(rest)
     elif cmd == "notifications":
         cmd_notifications(rest)
+    elif cmd == "pause-reason":
+        cmd_pause_reason(rest)
     elif cmd in ("-h", "--help", "help"):
         print(__doc__)
     else:
