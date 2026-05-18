@@ -10,6 +10,30 @@
     <div id="root">
       <div class="card loading"><h1>Loading…</h1></div>
     </div>
+    <section id="tasks" class="tasks-panel" hidden>
+      <div class="tasks-header">
+        <h2>Tasks</h2>
+        <button id="add-toggle" class="add-toggle">+ Add</button>
+      </div>
+      <form id="add-form" class="add-form" hidden>
+        <input type="text" name="title" placeholder="What needs doing?" required autocomplete="off">
+        <div class="date-row">
+          <label>Due <input type="datetime-local" name="due_at"></label>
+          <label>For <input type="datetime-local" name="scheduled_at"></label>
+        </div>
+        <textarea name="notes" placeholder="Notes (optional)" rows="2"></textarea>
+        <div class="form-actions">
+          <button type="button" id="add-cancel" class="ghost">Cancel</button>
+          <button type="submit" class="primary">Add task</button>
+        </div>
+      </form>
+      <ul id="pending-list" class="task-list"></ul>
+      <p id="empty-msg" class="empty hidden">No pending tasks.</p>
+      <div id="completed-section" class="completed-section" hidden>
+        <button id="completed-toggle" class="ghost completed-toggle"></button>
+        <ul id="completed-list" class="task-list completed" hidden></ul>
+      </div>
+    </section>
   </main>
   <script src="newtab.js"></script>
 </body>
