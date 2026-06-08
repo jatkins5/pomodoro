@@ -33,7 +33,7 @@ import subprocess
 import sys
 import time
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 CONFIG_PATH = Path(
@@ -565,10 +565,23 @@ def save_tasks(tasks: list[dict]) -> None:
 
 
 def normalize_dt(val) -> str | None:
+    """Normalize a date or datetime string.
+
+    Returns ``YYYY-MM-DD`` for a date with no time, or ``YYYY-MM-DDThh:mm``
+    (local-zone) when a time is present. Returns None for empty/invalid input.
+    """
     if val in (None, "", False):
         return None
     if not isinstance(val, str):
         return None
+    val = val.strip()
+    if not val:
+        return None
+    if "T" not in val and " " not in val:
+        try:
+            return date.fromisoformat(val).isoformat()
+        except ValueError:
+            return None
     try:
         dt = datetime.fromisoformat(val)
     except ValueError:

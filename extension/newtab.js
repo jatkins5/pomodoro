@@ -48,18 +48,28 @@ function esc(s) {
 
 function fmtChip(iso) {
   if (!iso) return null;
-  const d = new Date(iso);
+  const dateOnly = !iso.includes("T");
+  let d;
+  if (dateOnly) {
+    const [y, m, day] = iso.split("-").map(Number);
+    if (!y || !m || !day) return null;
+    d = new Date(y, m - 1, day); // local midnight — avoid UTC day-shift
+  } else {
+    d = new Date(iso);
+  }
   if (isNaN(d.getTime())) return null;
   const now = new Date();
-  const past = d < now;
   const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const days = Math.round((new Date(d.getFullYear(), d.getMonth(), d.getDate()) - start) / 86400000);
-  const time = d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
   let datePart;
   if (days === 0) datePart = "today";
   else if (days === 1) datePart = "tmrw";
   else if (days === -1) datePart = "yest";
   else datePart = d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  // For a date with no time, "past" means the day itself has passed.
+  const past = dateOnly ? days < 0 : d < now;
+  if (dateOnly) return { text: datePart, past };
+  const time = d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
   return { text: `${datePart} ${time}`, past };
 }
 
@@ -317,28 +327,53 @@ function renderTasks() {
   }
 }
 
+function combineDateTime(prefix, fd) {
+  const date = (fd.get(`${prefix}_date`) || "").toString().trim();
+  if (!date) return null;
+  const time = (fd.get(`${prefix}_time`) || "").toString().trim();
+  return time ? `${date}T${time}` : date;
+}
+
+function resetAddForm() {
+  addForm.reset();
+  addForm.querySelectorAll(".dt-time").forEach((t) => { t.value = ""; t.hidden = true; });
+  addForm.querySelectorAll(".dt-time-toggle").forEach((b) => { b.textContent = "+ time"; });
+  addForm.setAttribute("hidden", "");
+}
+
+addForm.querySelectorAll(".dt-time-toggle").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const time = btn.closest(".dt-field").querySelector(".dt-time");
+    if (time.hidden) {
+      time.hidden = false;
+      btn.textContent = "✕";
+      time.focus();
+    } else {
+      time.value = "";
+      time.hidden = true;
+      btn.textContent = "+ time";
+    }
+  });
+});
+
 addToggle.addEventListener("click", () => {
   const willShow = addForm.hasAttribute("hidden");
   addForm.toggleAttribute("hidden");
   if (willShow) addForm.querySelector('input[name="title"]').focus();
 });
-addCancel.addEventListener("click", () => {
-  addForm.reset();
-  addForm.setAttribute("hidden", "");
-});
+addCancel.addEventListener("click", resetAddForm);
 addForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   const fd = new FormData(addForm);
   const body = {
     title: (fd.get("title") || "").toString(),
-    due_at: (fd.get("due_at") || "").toString() || null,
-    scheduled_at: (fd.get("scheduled_at") || "").toString() || null,
+    due_at: combineDateTime("due_at", fd),
+    scheduled_at: combineDateTime("scheduled_at", fd),
     notes: (fd.get("notes") || "").toString() || null,
   };
   const result = await postAction("/tasks", body);
   if (result.error) { alert(`Error: ${result.error}`); return; }
-  addForm.reset();
-  addForm.setAttribute("hidden", "");
+  resetAddForm();
   refresh();
 });
 completedToggle.addEventListener("click", () => {

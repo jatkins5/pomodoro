@@ -22,9 +22,19 @@ body {
 
 main {
   width: 100%;
-  max-width: 560px;
+  max-width: 1040px;
   padding: 2rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 2rem;
+  align-items: start;
   text-align: center;
+}
+
+#root {
+  max-width: 560px;
+  margin: 0 auto;
+  width: 100%;
 }
 
 .card {
@@ -227,12 +237,13 @@ button.primary {
 }
 
 .tasks-panel {
-  margin-top: 1.5rem;
   padding: 1.25rem 1.5rem;
   border: 1px solid #e2e2e2;
   border-radius: 16px;
   background: #fff;
   text-align: left;
+  max-height: calc(100vh - 4rem);
+  overflow-y: auto;
 }
 
 .tasks-header {
@@ -286,26 +297,48 @@ button.primary {
 
 .add-form .date-row {
   display: flex;
-  gap: 0.5rem;
+  flex-direction: column;
+  gap: 0.6rem;
 }
 
 .add-form .date-row label {
-  flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 0.2rem;
+  gap: 0.25rem;
   font-size: 0.75rem;
   color: #777;
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
 
-.add-form .date-row input {
+.add-form .dt-field {
+  display: flex;
+  gap: 0.3rem;
+  align-items: center;
+}
+
+.add-form .dt-field input {
   padding: 0.45rem 0.6rem;
   border: 1px solid #ccc;
   border-radius: 6px;
   font-size: 0.9rem;
   font-family: inherit;
+  min-width: 0;
+}
+
+.add-form .dt-field input[type="date"] {
+  flex: 1;
+}
+
+.add-form .dt-time-toggle {
+  font-size: 0.75rem;
+  padding: 0.35rem 0.55rem;
+  margin: 0;
+  white-space: nowrap;
+  border-color: #ddd;
+  color: #888;
+  text-transform: none;
+  letter-spacing: 0;
 }
 
 .add-form .form-actions {

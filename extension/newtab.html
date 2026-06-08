@@ -18,8 +18,20 @@
       <form id="add-form" class="add-form" hidden>
         <input type="text" name="title" placeholder="What needs doing?" required autocomplete="off">
         <div class="date-row">
-          <label>Due <input type="datetime-local" name="due_at"></label>
-          <label>For <input type="datetime-local" name="scheduled_at"></label>
+          <label class="dt-label">Due
+            <span class="dt-field">
+              <input type="date" name="due_at_date">
+              <input type="time" name="due_at_time" class="dt-time" hidden>
+              <button type="button" class="dt-time-toggle">+ time</button>
+            </span>
+          </label>
+          <label class="dt-label">For
+            <span class="dt-field">
+              <input type="date" name="scheduled_at_date">
+              <input type="time" name="scheduled_at_time" class="dt-time" hidden>
+              <button type="button" class="dt-time-toggle">+ time</button>
+            </span>
+          </label>
         </div>
         <textarea name="notes" placeholder="Notes (optional)" rows="2"></textarea>
         <div class="form-actions">
