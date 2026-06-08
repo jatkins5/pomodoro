@@ -13,7 +13,7 @@ Subcommands:
   notifications [--since-id N]     Show muted notification backlog in rofi.
   pause-reason [--duration N]      Prompt for a reason for the last pause; logged.
   tasks list [--include-completed]
-  tasks add                        Read JSON body from stdin: {title, due_at?, scheduled_at?, notes?}
+  tasks add                        Read JSON body from stdin: {title, due_at?, scheduled_at?, long_term?, notes?}
   tasks update <id>                Read JSON body from stdin with fields to merge (null clears).
   tasks complete <id>
   tasks uncomplete <id>
@@ -650,6 +650,7 @@ def cmd_tasks(args: list[str]) -> None:
             "title": title,
             "due_at": normalize_dt(body.get("due_at")),
             "scheduled_at": normalize_dt(body.get("scheduled_at")),
+            "long_term": bool(body.get("long_term")),
             "notes": (body.get("notes") or None),
             "created_at": now_iso(),
             "completed_at": None,
@@ -682,6 +683,8 @@ def cmd_tasks(args: list[str]) -> None:
             for field in ("due_at", "scheduled_at"):
                 if field in body:
                     t[field] = normalize_dt(body[field])
+            if "long_term" in body:
+                t["long_term"] = bool(body["long_term"])
             log_event("task_update", task_id=tid)
         elif sub == "complete":
             t["completed_at"] = now_iso()

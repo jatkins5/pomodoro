@@ -35,12 +35,17 @@
         </div>
         <textarea name="notes" placeholder="Notes (optional)" rows="2"></textarea>
         <div class="form-actions">
+          <label class="lt-check"><input type="checkbox" name="long_term"> Long term</label>
           <button type="button" id="add-cancel" class="ghost">Cancel</button>
           <button type="submit" class="primary">Add task</button>
         </div>
       </form>
       <ul id="pending-list" class="task-list"></ul>
       <p id="empty-msg" class="empty hidden">No pending tasks.</p>
+      <div id="longterm-section" class="longterm-section" hidden>
+        <h3 class="section-label">Long term</h3>
+        <ul id="longterm-list" class="task-list"></ul>
+      </div>
       <div id="completed-section" class="completed-section" hidden>
         <button id="completed-toggle" class="ghost completed-toggle"></button>
         <ul id="completed-list" class="task-list completed" hidden></ul>

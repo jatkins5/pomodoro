@@ -354,6 +354,17 @@ button.primary {
   margin: 0;
 }
 
+.add-form .lt-check {
+  margin-right: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  color: #555;
+  cursor: pointer;
+}
+.add-form .lt-check input { width: auto; margin: 0; }
+
 .add-form .primary {
   background: #339AF0;
   color: white;
@@ -459,6 +470,25 @@ button.ghost:hover { background: #f2f2f2; color: #333; }
 .task-actions button:hover { background: #f2f2f2; color: #333; border-color: #ddd; }
 .task-actions button.start:hover { background: #d3f9d8; color: #2b8a3e; border-color: #b2f2bb; }
 .task-actions button.del:hover { background: #ffe3e3; color: #c92a2a; border-color: #ffc9c9; }
+
+.longterm-section { margin-top: 1.25rem; }
+
+.section-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: #888;
+  font-weight: 500;
+  margin: 0 0 0.5rem;
+}
+
+.task-actions button.longterm { color: #ccc; }
+.task-actions button.longterm:hover {
+  background: #fff9db;
+  color: #f08c00;
+  border-color: #ffec99;
+}
+.task-actions button.longterm.on { color: #f59f00; }
 
 .completed-section { margin-top: 1rem; }
 .completed-toggle {

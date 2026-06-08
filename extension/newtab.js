@@ -2,6 +2,8 @@ const ENDPOINT = "http://127.0.0.1:17234";
 const root = document.getElementById("root");
 const tasksPanel = document.getElementById("tasks");
 const pendingList = document.getElementById("pending-list");
+const longtermSection = document.getElementById("longterm-section");
+const longtermList = document.getElementById("longterm-list");
 const completedSection = document.getElementById("completed-section");
 const completedList = document.getElementById("completed-list");
 const completedToggle = document.getElementById("completed-toggle");
@@ -264,6 +266,9 @@ function renderTaskRow(t) {
   const completeBtn = isCompleted
     ? ""
     : `<button class="complete" data-act="complete" title="Mark complete">✓</button>`;
+  const longtermBtn = isCompleted
+    ? ""
+    : `<button class="longterm${t.long_term ? " on" : ""}" data-act="longterm" title="${t.long_term ? "Remove from long term" : "Mark as long term"}">${t.long_term ? "★" : "☆"}</button>`;
   const cls = `task${active ? " active" : ""}${isCompleted ? " completed" : ""}`;
   const li = el(`
     <li class="${cls}" data-id="${t.id}">
@@ -273,6 +278,7 @@ function renderTaskRow(t) {
         ${notes}
       </div>
       <div class="task-actions">
+        ${longtermBtn}
         ${startBtn}
         ${completeBtn}
         <button class="del" data-act="delete" title="Delete">✕</button>
@@ -296,6 +302,9 @@ async function onTaskAction(id, op) {
     await postAction(`/tasks/${id}/complete`);
   } else if (op === "uncomplete") {
     await postAction(`/tasks/${id}/uncomplete`);
+  } else if (op === "longterm") {
+    const t = tasksCache.find((x) => x.id === id);
+    await postAction(`/tasks/${id}/update`, { long_term: !t?.long_term });
   } else if (op === "delete") {
     if (!confirm("Delete this task?")) return;
     if (pomState?.task?.id === id) await postAction("/set-task", { clear: true });
@@ -307,16 +316,21 @@ async function onTaskAction(id, op) {
 function renderTasks() {
   tasksPanel.hidden = false;
   pendingList.replaceChildren();
+  longtermList.replaceChildren();
   completedList.replaceChildren();
 
-  const pending = tasksCache.filter((t) => !t.completed_at).sort(compareTasks);
+  const pending = tasksCache.filter((t) => !t.completed_at);
+  const shortTerm = pending.filter((t) => !t.long_term).sort(compareTasks);
+  const longTerm = pending.filter((t) => t.long_term).sort(compareTasks);
   const completed = tasksCache.filter((t) => t.completed_at)
     .sort((a, b) => (b.completed_at || "").localeCompare(a.completed_at || ""));
 
-  for (const t of pending) pendingList.appendChild(renderTaskRow(t));
+  for (const t of shortTerm) pendingList.appendChild(renderTaskRow(t));
+  for (const t of longTerm) longtermList.appendChild(renderTaskRow(t));
   for (const t of completed) completedList.appendChild(renderTaskRow(t));
 
   emptyMsg.classList.toggle("hidden", pending.length > 0);
+  longtermSection.hidden = longTerm.length === 0;
 
   if (completed.length === 0) {
     completedSection.hidden = true;
@@ -369,6 +383,7 @@ addForm.addEventListener("submit", async (e) => {
     title: (fd.get("title") || "").toString(),
     due_at: combineDateTime("due_at", fd),
     scheduled_at: combineDateTime("scheduled_at", fd),
+    long_term: !!fd.get("long_term"),
     notes: (fd.get("notes") || "").toString() || null,
   };
   const result = await postAction("/tasks", body);
