@@ -354,6 +354,14 @@ button.primary {
   margin: 0;
 }
 
+.add-form .form-mode {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-weight: 500;
+  color: #6741d9;
+}
+
 .add-form .lt-check {
   margin-right: auto;
   display: flex;

@@ -11,8 +11,11 @@ const emptyMsg = document.getElementById("empty-msg");
 const addToggle = document.getElementById("add-toggle");
 const addForm = document.getElementById("add-form");
 const addCancel = document.getElementById("add-cancel");
+const addSubmit = document.getElementById("add-submit");
+const formMode = document.getElementById("form-mode");
 const tagFilter = document.getElementById("tag-filter");
 const parseHint = document.getElementById("parse-hint");
+const titleInput = addForm.querySelector('input[name="title"]');
 
 let countdownTimer = null;
 let pomState = null;
@@ -21,6 +24,7 @@ let showCompleted = false;
 let editingTask = false;
 let idleTaskText = "";
 let activeTag = null;
+let editTaskId = null;
 
 const TAG_RE = /(?:^|\s)#([A-Za-z0-9_-]+)/g;
 
@@ -301,6 +305,7 @@ function renderTaskRow(t) {
         ${longtermBtn}
         ${startBtn}
         ${completeBtn}
+        <button class="edit" data-act="edit" title="Edit task">✎</button>
         <button class="del" data-act="delete" title="Delete">✕</button>
       </div>
     </li>`);
@@ -311,6 +316,10 @@ function renderTaskRow(t) {
 }
 
 async function onTaskAction(id, op) {
+  if (op === "edit") {
+    openEditForm(tasksCache.find((x) => x.id === id));
+    return;
+  }
   if (op === "start") {
     if (pomState?.status === "idle") {
       await postAction("/toggle", { task_id: id });
@@ -396,17 +405,20 @@ function combineDateTime(prefix, fd) {
   return time ? `${date}T${time}` : date;
 }
 
-function resetAddForm() {
-  addForm.reset();
-  addForm.querySelectorAll(".dt-time").forEach((t) => { t.value = ""; t.hidden = true; });
-  addForm.querySelectorAll(".dt-time-toggle").forEach((b) => { b.textContent = "+ time"; });
-  parseHint.hidden = true;
-  parseHint.replaceChildren();
-  addForm.setAttribute("hidden", "");
+function splitDateTime(iso) {
+  if (!iso) return { date: "", time: "" };
+  if (!iso.includes("T")) return { date: iso, time: "" };
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return { date: "", time: "" };
+  const pad = (n) => String(n).padStart(2, "0");
+  return {
+    date: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`,
+    time: `${pad(d.getHours())}:${pad(d.getMinutes())}`,
+  };
 }
 
-addForm.querySelector('input[name="title"]').addEventListener("input", (e) => {
-  const { clean, tags } = parseTags(e.target.value);
+function updateParseHint() {
+  const { clean, tags } = parseTags(titleInput.value);
   if (!tags.length) {
     parseHint.hidden = true;
     return;
@@ -414,7 +426,58 @@ addForm.querySelector('input[name="title"]').addEventListener("input", (e) => {
   parseHint.hidden = false;
   const chips = tags.map((t) => `<span class="chip tag">#${esc(t)}</span>`).join("");
   parseHint.innerHTML = `${chips}<span class="parse-clean">${esc(clean || "(no title)")}</span>`;
-});
+}
+
+// Reset all fields to a blank add-task state (does not change visibility).
+function clearForm() {
+  addForm.reset();
+  addForm.querySelectorAll(".dt-time").forEach((t) => { t.value = ""; t.hidden = true; });
+  addForm.querySelectorAll(".dt-time-toggle").forEach((b) => { b.textContent = "+ time"; });
+  parseHint.hidden = true;
+  parseHint.replaceChildren();
+  editTaskId = null;
+  formMode.hidden = true;
+  addSubmit.textContent = "Add task";
+}
+
+function resetAddForm() {
+  clearForm();
+  addForm.setAttribute("hidden", "");
+}
+
+function setDateField(prefix, iso) {
+  const field = addForm.querySelector(`input[name="${prefix}_date"]`).closest(".dt-field");
+  const dateInput = field.querySelector('input[type="date"]');
+  const timeInput = field.querySelector(".dt-time");
+  const toggle = field.querySelector(".dt-time-toggle");
+  const { date, time } = splitDateTime(iso);
+  dateInput.value = date;
+  timeInput.value = time;
+  timeInput.hidden = !time;
+  toggle.textContent = time ? "✕" : "+ time";
+}
+
+function openEditForm(task) {
+  if (!task) return;
+  clearForm();
+  editTaskId = task.id;
+  // Re-append tags to the title so they stay editable (the title is the source of truth).
+  const tagSuffix = (Array.isArray(task.tags) ? task.tags : []).map((t) => `#${t}`).join(" ");
+  titleInput.value = [task.title || "", tagSuffix].filter(Boolean).join(" ");
+  setDateField("due_at", task.due_at);
+  setDateField("scheduled_at", task.scheduled_at);
+  addForm.querySelector('textarea[name="notes"]').value = task.notes || "";
+  addForm.querySelector('input[name="long_term"]').checked = !!task.long_term;
+  updateParseHint();
+  formMode.hidden = false;
+  addSubmit.textContent = "Save";
+  addForm.removeAttribute("hidden");
+  titleInput.focus();
+  titleInput.setSelectionRange(titleInput.value.length, titleInput.value.length);
+  addForm.scrollIntoView({ block: "nearest" });
+}
+
+titleInput.addEventListener("input", updateParseHint);
 
 addForm.querySelectorAll(".dt-time-toggle").forEach((btn) => {
   btn.addEventListener("click", () => {
@@ -432,9 +495,13 @@ addForm.querySelectorAll(".dt-time-toggle").forEach((btn) => {
 });
 
 addToggle.addEventListener("click", () => {
-  const willShow = addForm.hasAttribute("hidden");
-  addForm.toggleAttribute("hidden");
-  if (willShow) addForm.querySelector('input[name="title"]').focus();
+  if (addForm.hasAttribute("hidden")) {
+    clearForm();
+    addForm.removeAttribute("hidden");
+    titleInput.focus();
+  } else {
+    resetAddForm();
+  }
 });
 addCancel.addEventListener("click", resetAddForm);
 addForm.addEventListener("submit", async (e) => {
@@ -447,7 +514,8 @@ addForm.addEventListener("submit", async (e) => {
     long_term: !!fd.get("long_term"),
     notes: (fd.get("notes") || "").toString() || null,
   };
-  const result = await postAction("/tasks", body);
+  const path = editTaskId ? `/tasks/${editTaskId}/update` : "/tasks";
+  const result = await postAction(path, body);
   if (result.error) { alert(`Error: ${result.error}`); return; }
   resetAddForm();
   refresh();
