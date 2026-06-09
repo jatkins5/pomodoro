@@ -524,14 +524,6 @@ button.ghost:hover { background: #f2f2f2; color: #333; }
   margin: 0 0 0.5rem;
 }
 
-.task-actions button.longterm { color: #ccc; }
-.task-actions button.longterm:hover {
-  background: #fff9db;
-  color: #f08c00;
-  border-color: #ffec99;
-}
-.task-actions button.longterm.on { color: #f59f00; }
-
 .completed-section { margin-top: 1rem; }
 .completed-toggle {
   font-size: 0.8rem;

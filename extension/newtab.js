@@ -290,9 +290,6 @@ function renderTaskRow(t) {
   const completeBtn = isCompleted
     ? ""
     : `<button class="complete" data-act="complete" title="Mark complete">✓</button>`;
-  const longtermBtn = isCompleted
-    ? ""
-    : `<button class="longterm${t.long_term ? " on" : ""}" data-act="longterm" title="${t.long_term ? "Remove from long term" : "Mark as long term"}">${t.long_term ? "★" : "☆"}</button>`;
   const cls = `task${active ? " active" : ""}${isCompleted ? " completed" : ""}`;
   const li = el(`
     <li class="${cls}" data-id="${t.id}">
@@ -302,7 +299,6 @@ function renderTaskRow(t) {
         ${notes}
       </div>
       <div class="task-actions">
-        ${longtermBtn}
         ${startBtn}
         ${completeBtn}
         <button class="edit" data-act="edit" title="Edit task">✎</button>
@@ -331,9 +327,6 @@ async function onTaskAction(id, op) {
     await postAction(`/tasks/${id}/complete`);
   } else if (op === "uncomplete") {
     await postAction(`/tasks/${id}/uncomplete`);
-  } else if (op === "longterm") {
-    const t = tasksCache.find((x) => x.id === id);
-    await postAction(`/tasks/${id}/update`, { long_term: !t?.long_term });
   } else if (op === "delete") {
     if (!confirm("Delete this task?")) return;
     if (pomState?.task?.id === id) await postAction("/set-task", { clear: true });
