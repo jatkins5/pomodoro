@@ -22,12 +22,12 @@ body {
 
 main {
   width: 100%;
-  max-width: 1040px;
+  max-width: 1140px;
   padding: 2rem;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 360px;
-  gap: 2rem;
-  align-items: start;
+  gap: 3.5rem;
+  align-items: center;
   text-align: center;
 }
 
@@ -242,7 +242,7 @@ button.primary {
   border-radius: 16px;
   background: #fff;
   text-align: left;
-  max-height: calc(100vh - 4rem);
+  max-height: calc(100vh - 8rem);
   overflow-y: auto;
 }
 
