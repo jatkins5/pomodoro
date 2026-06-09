@@ -16,7 +16,8 @@
         <button id="add-toggle" class="add-toggle">+ Add</button>
       </div>
       <form id="add-form" class="add-form" hidden>
-        <input type="text" name="title" placeholder="What needs doing?" required autocomplete="off">
+        <input type="text" name="title" placeholder="What needs doing? (#tag to label)" required autocomplete="off">
+        <div id="parse-hint" class="parse-hint" hidden></div>
         <div class="date-row">
           <label class="dt-label">Due
             <span class="dt-field">
@@ -40,6 +41,7 @@
           <button type="submit" class="primary">Add task</button>
         </div>
       </form>
+      <div id="tag-filter" class="tag-filter" hidden></div>
       <ul id="pending-list" class="task-list"></ul>
       <p id="empty-msg" class="empty hidden">No pending tasks.</p>
       <div id="longterm-section" class="longterm-section" hidden>

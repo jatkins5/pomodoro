@@ -441,6 +441,40 @@ button.ghost:hover { background: #f2f2f2; color: #333; }
 .chip.due.overdue { background: #f8d7da; color: #721c24; }
 .chip.scheduled { background: #d1ecf1; color: #0c5460; }
 .chip.scheduled.past { background: #eee; color: #999; }
+.chip.tag { background: #f3f0ff; color: #6741d9; }
+
+.tag-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-bottom: 0.85rem;
+}
+
+.filter-chip {
+  font-size: 0.78rem;
+  padding: 0.25rem 0.6rem;
+  margin: 0;
+  border-radius: 12px;
+  border: 1px solid #ddd;
+  color: #666;
+  background: #fff;
+}
+.filter-chip.on,
+.filter-chip.on:hover {
+  background: #6741d9;
+  border-color: #6741d9;
+  color: #fff;
+}
+
+.parse-hint {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.78rem;
+  margin: -0.1rem 0 0.1rem;
+}
+.parse-hint .parse-clean { color: #999; }
 
 .task-notes {
   margin-top: 0.25rem;

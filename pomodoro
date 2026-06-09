@@ -12,8 +12,9 @@ Subcommands:
   analyze [--today|--week|--all]   Summarize the log.
   notifications [--since-id N]     Show muted notification backlog in rofi.
   pause-reason [--duration N]      Prompt for a reason for the last pause; logged.
-  tasks list [--include-completed]
+  tasks list [--include-completed] [--tag NAME]
   tasks add                        Read JSON body from stdin: {title, due_at?, scheduled_at?, long_term?, notes?}
+                                   #tags in the title are parsed out and stored as tags.
   tasks update <id>                Read JSON body from stdin with fields to merge (null clears).
   tasks complete <id>
   tasks uncomplete <id>
@@ -28,6 +29,7 @@ Log:     ~/.local/state/pomodoro/log.jsonl
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -591,6 +593,38 @@ def normalize_dt(val) -> str | None:
     return dt.isoformat(timespec="minutes")
 
 
+TAG_RE = re.compile(r"(?:^|\s)#([A-Za-z0-9_-]+)")
+
+
+def parse_tags(title: str) -> tuple[str, list[str]]:
+    """Extract Todoist-style ``#tags`` from a title.
+
+    Returns ``(clean_title, tags)`` — the title with tag tokens removed and
+    whitespace collapsed, plus lowercased de-duplicated tags in first-seen order.
+    """
+    tags: list[str] = []
+    for m in TAG_RE.finditer(title):
+        tag = m.group(1).lower()
+        if tag not in tags:
+            tags.append(tag)
+    clean = re.sub(r"\s+", " ", TAG_RE.sub(" ", title)).strip()
+    return clean, tags
+
+
+def normalize_tags(val) -> list[str]:
+    """Coerce an explicit tags value (list of strings) into clean tag slugs."""
+    if not isinstance(val, list):
+        return []
+    out: list[str] = []
+    for t in val:
+        if not isinstance(t, str):
+            continue
+        t = re.sub(r"[^a-z0-9_-]", "", t.strip().lstrip("#").lower())
+        if t and t not in out:
+            out.append(t)
+    return out
+
+
 def read_stdin_json() -> dict:
     if sys.stdin.isatty():
         return {}
@@ -635,14 +669,24 @@ def cmd_tasks(args: list[str]) -> None:
         include_completed = "--include-completed" in rest or "--all" in rest
         if not include_completed:
             tasks = [t for t in tasks if not t.get("completed_at")]
+        if "--tag" in rest:
+            try:
+                want = rest[rest.index("--tag") + 1].lstrip("#").lower()
+            except IndexError:
+                want = ""
+            if want:
+                tasks = [t for t in tasks if want in (t.get("tags") or [])]
         print(json.dumps(tasks))
         return
     if sub == "add":
         body = read_stdin_json()
-        title = (body.get("title") or "").strip()
+        title, tags = parse_tags((body.get("title") or "").strip())
         if not title:
             print(json.dumps({"error": "title required"}), file=sys.stderr)
             sys.exit(1)
+        for t in normalize_tags(body.get("tags")):
+            if t not in tags:
+                tags.append(t)
         tasks = load_tasks()
         new_id = max((t.get("id", 0) for t in tasks), default=0) + 1
         task = {
@@ -651,6 +695,7 @@ def cmd_tasks(args: list[str]) -> None:
             "due_at": normalize_dt(body.get("due_at")),
             "scheduled_at": normalize_dt(body.get("scheduled_at")),
             "long_term": bool(body.get("long_term")),
+            "tags": tags,
             "notes": (body.get("notes") or None),
             "created_at": now_iso(),
             "completed_at": None,
@@ -676,15 +721,21 @@ def cmd_tasks(args: list[str]) -> None:
             sys.exit(1)
         if sub == "update":
             body = read_stdin_json()
-            for field in ("title", "notes"):
-                if field in body:
-                    val = body[field]
-                    t[field] = val.strip() if isinstance(val, str) and val.strip() else (None if field == "notes" else t[field])
+            if "title" in body and isinstance(body["title"], str) and body["title"].strip():
+                new_title, parsed_tags = parse_tags(body["title"].strip())
+                if new_title:
+                    t["title"] = new_title
+                    t["tags"] = parsed_tags
+            if "notes" in body:
+                val = body["notes"]
+                t["notes"] = val.strip() if isinstance(val, str) and val.strip() else None
             for field in ("due_at", "scheduled_at"):
                 if field in body:
                     t[field] = normalize_dt(body[field])
             if "long_term" in body:
                 t["long_term"] = bool(body["long_term"])
+            if "tags" in body:
+                t["tags"] = normalize_tags(body["tags"])
             log_event("task_update", task_id=tid)
         elif sub == "complete":
             t["completed_at"] = now_iso()

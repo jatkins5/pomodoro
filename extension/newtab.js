@@ -11,6 +11,8 @@ const emptyMsg = document.getElementById("empty-msg");
 const addToggle = document.getElementById("add-toggle");
 const addForm = document.getElementById("add-form");
 const addCancel = document.getElementById("add-cancel");
+const tagFilter = document.getElementById("tag-filter");
+const parseHint = document.getElementById("parse-hint");
 
 let countdownTimer = null;
 let pomState = null;
@@ -18,6 +20,21 @@ let tasksCache = [];
 let showCompleted = false;
 let editingTask = false;
 let idleTaskText = "";
+let activeTag = null;
+
+const TAG_RE = /(?:^|\s)#([A-Za-z0-9_-]+)/g;
+
+function parseTags(title) {
+  const tags = [];
+  let m;
+  TAG_RE.lastIndex = 0;
+  while ((m = TAG_RE.exec(title)) !== null) {
+    const t = m[1].toLowerCase();
+    if (!tags.includes(t)) tags.push(t);
+  }
+  const clean = title.replace(TAG_RE, " ").replace(/\s+/g, " ").trim();
+  return { clean, tags };
+}
 
 function fmtMmss(seconds) {
   const m = Math.floor(seconds / 60).toString().padStart(2, "0");
@@ -258,6 +275,9 @@ function renderTaskRow(t) {
   const chips = [];
   if (due) chips.push(`<span class="chip due${due.past ? " overdue" : ""}">due ${esc(due.text)}</span>`);
   if (sch) chips.push(`<span class="chip scheduled${sch.past ? " past" : ""}">for ${esc(sch.text)}</span>`);
+  for (const tag of (Array.isArray(t.tags) ? t.tags : [])) {
+    chips.push(`<span class="chip tag">#${esc(tag)}</span>`);
+  }
   const notes = t.notes ? `<div class="task-notes">${esc(t.notes)}</div>` : "";
   const meta = chips.length ? `<div class="task-meta">${chips.join("")}</div>` : "";
   const startBtn = isCompleted
@@ -313,6 +333,30 @@ async function onTaskAction(id, op) {
   refresh();
 }
 
+function renderTagFilter(pending) {
+  const counts = new Map();
+  for (const t of pending) {
+    for (const tag of (Array.isArray(t.tags) ? t.tags : [])) {
+      counts.set(tag, (counts.get(tag) || 0) + 1);
+    }
+  }
+  if (activeTag && !counts.has(activeTag)) activeTag = null;
+  tagFilter.replaceChildren();
+  if (counts.size === 0) {
+    tagFilter.hidden = true;
+    return;
+  }
+  tagFilter.hidden = false;
+  const allBtn = el(`<button class="filter-chip${activeTag ? "" : " on"}">all</button>`);
+  allBtn.addEventListener("click", () => { activeTag = null; renderTasks(); });
+  tagFilter.appendChild(allBtn);
+  for (const tag of [...counts.keys()].sort()) {
+    const b = el(`<button class="filter-chip${activeTag === tag ? " on" : ""}">#${esc(tag)}</button>`);
+    b.addEventListener("click", () => { activeTag = activeTag === tag ? null : tag; renderTasks(); });
+    tagFilter.appendChild(b);
+  }
+}
+
 function renderTasks() {
   tasksPanel.hidden = false;
   pendingList.replaceChildren();
@@ -320,16 +364,20 @@ function renderTasks() {
   completedList.replaceChildren();
 
   const pending = tasksCache.filter((t) => !t.completed_at);
-  const shortTerm = pending.filter((t) => !t.long_term).sort(compareTasks);
-  const longTerm = pending.filter((t) => t.long_term).sort(compareTasks);
-  const completed = tasksCache.filter((t) => t.completed_at)
+  renderTagFilter(pending);
+
+  const match = (t) => !activeTag || (Array.isArray(t.tags) && t.tags.includes(activeTag));
+  const shortTerm = pending.filter((t) => !t.long_term && match(t)).sort(compareTasks);
+  const longTerm = pending.filter((t) => t.long_term && match(t)).sort(compareTasks);
+  const completed = tasksCache.filter((t) => t.completed_at && match(t))
     .sort((a, b) => (b.completed_at || "").localeCompare(a.completed_at || ""));
 
   for (const t of shortTerm) pendingList.appendChild(renderTaskRow(t));
   for (const t of longTerm) longtermList.appendChild(renderTaskRow(t));
   for (const t of completed) completedList.appendChild(renderTaskRow(t));
 
-  emptyMsg.classList.toggle("hidden", pending.length > 0);
+  emptyMsg.textContent = activeTag ? `No pending tasks tagged #${activeTag}.` : "No pending tasks.";
+  emptyMsg.classList.toggle("hidden", shortTerm.length + longTerm.length > 0);
   longtermSection.hidden = longTerm.length === 0;
 
   if (completed.length === 0) {
@@ -352,8 +400,21 @@ function resetAddForm() {
   addForm.reset();
   addForm.querySelectorAll(".dt-time").forEach((t) => { t.value = ""; t.hidden = true; });
   addForm.querySelectorAll(".dt-time-toggle").forEach((b) => { b.textContent = "+ time"; });
+  parseHint.hidden = true;
+  parseHint.replaceChildren();
   addForm.setAttribute("hidden", "");
 }
+
+addForm.querySelector('input[name="title"]').addEventListener("input", (e) => {
+  const { clean, tags } = parseTags(e.target.value);
+  if (!tags.length) {
+    parseHint.hidden = true;
+    return;
+  }
+  parseHint.hidden = false;
+  const chips = tags.map((t) => `<span class="chip tag">#${esc(t)}</span>`).join("");
+  parseHint.innerHTML = `${chips}<span class="parse-clean">${esc(clean || "(no title)")}</span>`;
+});
 
 addForm.querySelectorAll(".dt-time-toggle").forEach((btn) => {
   btn.addEventListener("click", () => {
