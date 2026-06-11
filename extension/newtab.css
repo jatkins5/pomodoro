@@ -582,7 +582,7 @@ button.ghost:hover { background: #f2f2f2; color: #333; }
   line-height: 1.45;
   display: block;
   resize: none;
-  overflow-y: auto;
+  overflow-y: hidden;
 }
 
 #learning-input:focus {

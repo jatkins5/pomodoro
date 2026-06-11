@@ -584,8 +584,11 @@ function growLearningInput() {
   const top = learningInput.getBoundingClientRect().top;
   const listH = learningList.getBoundingClientRect().height;
   const avail = window.innerHeight - top - listH - 32; // room for the list + bottom gap
-  const target = Math.min(learningInput.scrollHeight, Math.max(avail, 60));
+  const full = learningInput.scrollHeight;
+  const target = Math.min(full, Math.max(avail, 60));
   learningInput.style.height = `${target}px`;
+  // Only show the scrollbar when the text is actually taller than the cap.
+  learningInput.style.overflowY = full > target ? "auto" : "hidden";
 }
 learningInput.addEventListener("input", growLearningInput);
 learningInput.addEventListener("keydown", (e) => {
