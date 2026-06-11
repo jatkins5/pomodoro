@@ -9,8 +9,12 @@ UNIT_DIR="$HOME/.config/systemd/user"
 
 mkdir -p "$UNIT_DIR"
 ln -sfn "$REPO/$UNIT_NAME" "$UNIT_DIR/$UNIT_NAME"
+for unit in pomodoro-learning-nudge.service pomodoro-learning-nudge.timer; do
+  ln -sfn "$REPO/$unit" "$UNIT_DIR/$unit"
+done
 systemctl --user daemon-reload
 systemctl --user enable --now "$UNIT_NAME"
+systemctl --user enable --now pomodoro-learning-nudge.timer
 
 echo
 echo "Server installed and running."

@@ -14,6 +14,8 @@ Endpoints:
   POST /tasks/<id>/complete
   POST /tasks/<id>/uncomplete
   POST /tasks/<id>/delete
+  GET  /learnings[?today=1] -> list learnings (or today's summary)
+  POST /learnings           -> body {text}
 
 Binds to 127.0.0.1 only. Port defaults to 17234, override with POMODORO_PORT.
 CORS is open (*) — safe because we only listen on the loopback interface.
@@ -87,6 +89,12 @@ class Handler(BaseHTTPRequestHandler):
                 args.append("--all")
             self._send(200, run_cli(*args))
             return
+        if self.path == "/learnings" or self.path.startswith("/learnings?"):
+            if "today=1" in self.path or "today=true" in self.path:
+                self._send(200, run_cli("learning", "today"))
+            else:
+                self._send(200, run_cli("learning", "list"))
+            return
         self._send(404, {"error": "not found"})
 
     def do_POST(self) -> None:
@@ -107,6 +115,11 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/tasks":
             body = self._read_body()
             result = run_cli("tasks", "add", stdin=body)
+            self._send(400 if "error" in result else 200, result)
+            return
+        if self.path == "/learnings":
+            body = self._read_body()
+            result = run_cli("learning", "add", stdin=body)
             self._send(400 if "error" in result else 200, result)
             return
         m = re.fullmatch(r"/tasks/(\d+)/(update|complete|uncomplete|delete)", self.path)

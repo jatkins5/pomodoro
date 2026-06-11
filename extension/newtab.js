@@ -16,6 +16,10 @@ const formMode = document.getElementById("form-mode");
 const tagFilter = document.getElementById("tag-filter");
 const parseHint = document.getElementById("parse-hint");
 const titleInput = addForm.querySelector('input[name="title"]');
+const learningsPanel = document.getElementById("learnings");
+const learningForm = document.getElementById("learning-form");
+const learningInput = document.getElementById("learning-input");
+const learningList = document.getElementById("learning-list");
 
 let countdownTimer = null;
 let pomState = null;
@@ -25,6 +29,7 @@ let editingTask = false;
 let idleTaskText = "";
 let activeTag = null;
 let editTaskId = null;
+let learningsToday = null;
 
 const TAG_RE = /(?:^|\s)#([A-Za-z0-9_-]+)/g;
 
@@ -116,8 +121,33 @@ async function refresh() {
   } catch (e) {
     tasksCache = [];
   }
+  try {
+    learningsToday = await api("GET", "/learnings?today=1");
+  } catch (e) {
+    learningsToday = null;
+  }
   render();
   renderTasks();
+  renderLearnings();
+}
+
+function renderLearnings() {
+  if (!learningsToday) {
+    learningsPanel.hidden = true;
+    return;
+  }
+  learningsPanel.hidden = false;
+  const entries = Array.isArray(learningsToday.entries) ? learningsToday.entries : [];
+  const hour = new Date().getHours();
+  const urgent = entries.length === 0 && hour >= (learningsToday.prompt_hour ?? 18);
+  learningsPanel.classList.toggle("urgent", urgent);
+  learningInput.placeholder = urgent
+    ? "You haven't recorded a learning today — what did you learn?"
+    : "What did you learn today?";
+  learningList.replaceChildren();
+  for (const e of entries) {
+    learningList.appendChild(el(`<li class="learning">${esc(e.text)}</li>`));
+  }
 }
 
 function renderActiveTask(task) {
@@ -516,6 +546,15 @@ addForm.addEventListener("submit", async (e) => {
 completedToggle.addEventListener("click", () => {
   showCompleted = !showCompleted;
   renderTasks();
+});
+learningForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const text = learningInput.value.trim();
+  if (!text) return;
+  const result = await postAction("/learnings", { text });
+  if (result.error) { alert(`Error: ${result.error}`); return; }
+  learningInput.value = "";
+  refresh();
 });
 
 refresh();

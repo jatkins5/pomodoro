@@ -20,11 +20,16 @@ Subcommands:
   tasks uncomplete <id>
   tasks delete <id>
   set-task                         Read JSON body from stdin: {task_id} | {task_text} | {clear: true}
+  learning add                     Read JSON body from stdin: {text}. Append today's learning.
+  learning list [--today]
+  learning today                   JSON: {date, count, logged, prompt_hour, entries}.
+  learning nudge                   Notify if nothing learned today (for the evening timer).
 
 Config:  ~/.config/pomodoro/config.json (auto-created with defaults)
 State:   ~/.local/state/pomodoro/state.json
 Tasks:   ~/.local/state/pomodoro/tasks.json
 Log:     ~/.local/state/pomodoro/log.jsonl
+Learnings: ~/.local/state/pomodoro/learnings.jsonl
 """
 
 import json
@@ -49,6 +54,7 @@ STATE_DIR = Path(
 STATE_PATH = STATE_DIR / "state.json"
 LOG_PATH = STATE_DIR / "log.jsonl"
 TASKS_PATH = STATE_DIR / "tasks.json"
+LEARNINGS_PATH = STATE_DIR / "learnings.jsonl"
 MUTE_MARKER = STATE_DIR / "mute_since_id"
 MEDIA_MARKER = STATE_DIR / "paused_media"
 
@@ -59,6 +65,8 @@ DEFAULTS = {
     "cycle_length": 4,
     "auto_advance": True,
     "notify": True,
+    "learning_prompt_hour": 18,
+    "learning_nudge_hour": 21,
     "colors": {
         "focus": "#FF6B6B",
         "short_break": "#51CF66",
@@ -786,6 +794,81 @@ def cmd_set_task() -> None:
     print(json.dumps({"task_id": state.get("task_id"), "task_text": state.get("task_text")}))
 
 
+def load_learnings() -> list[dict]:
+    if not LEARNINGS_PATH.exists():
+        return []
+    out: list[dict] = []
+    with LEARNINGS_PATH.open() as f:
+        for line in f:
+            line = line.strip()
+            if not line or not line.startswith("{"):
+                continue
+            try:
+                out.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+    return out
+
+
+def append_learning(text: str) -> dict:
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    existing = load_learnings()
+    entry = {
+        "id": max((e.get("id", 0) for e in existing), default=0) + 1,
+        "ts": now_iso(),
+        "text": text,
+    }
+    with LEARNINGS_PATH.open("a") as f:
+        f.write(json.dumps(entry) + "\n")
+    return entry
+
+
+def learnings_on(date_str: str) -> list[dict]:
+    return [e for e in load_learnings() if e.get("ts", "").startswith(date_str)]
+
+
+def cmd_learning(cfg: dict, args: list[str]) -> None:
+    if not args:
+        print("usage: pomodoro learning {add|list|today|nudge}", file=sys.stderr)
+        sys.exit(1)
+    sub, rest = args[0], args[1:]
+    if sub == "add":
+        body = read_stdin_json()
+        text = str(body.get("text") or "").strip()
+        if not text:
+            print(json.dumps({"error": "text required"}), file=sys.stderr)
+            sys.exit(1)
+        entry = append_learning(text)
+        log_event("learning_add", learning_id=entry["id"])
+        print(json.dumps(entry))
+        return
+    if sub == "list":
+        if "--today" in rest:
+            print(json.dumps(learnings_on(datetime.now().date().isoformat())))
+        else:
+            print(json.dumps(load_learnings()))
+        return
+    if sub == "today":
+        today = datetime.now().date().isoformat()
+        entries = learnings_on(today)
+        print(json.dumps({
+            "date": today,
+            "count": len(entries),
+            "logged": bool(entries),
+            "prompt_hour": int(cfg.get("learning_prompt_hour", 18)),
+            "entries": entries,
+        }))
+        return
+    if sub == "nudge":
+        today = datetime.now().date().isoformat()
+        if learnings_on(today):
+            return
+        notify(cfg, "What did you learn today?", "Jot down one thing before the day ends.")
+        return
+    print(f"unknown learning subcommand: {sub}", file=sys.stderr)
+    sys.exit(1)
+
+
 def cmd_pause_reason(args: list[str]) -> None:
     if not shutil.which("rofi"):
         return
@@ -857,7 +940,7 @@ def cmd_notifications(args: list[str]) -> None:
         _dunstctl("history-pop", str(items[idx]["id"]))
 
 
-USAGE = "usage: pomodoro {toggle|stop|skip|reset|status [--json|--i3blocks]|analyze [--today|--week|--all]|notifications [--since-id N]|pause-reason [--duration N]|tasks {list|add|update|complete|uncomplete|delete} ...|set-task}"
+USAGE = "usage: pomodoro {toggle|stop|skip|reset|status [--json|--i3blocks]|analyze [--today|--week|--all]|notifications [--since-id N]|pause-reason [--duration N]|tasks {list|add|update|complete|uncomplete|delete} ...|set-task|learning {add|list|today|nudge}}"
 
 
 def main() -> None:
@@ -887,6 +970,8 @@ def main() -> None:
         cmd_tasks(rest)
     elif cmd == "set-task":
         cmd_set_task()
+    elif cmd == "learning":
+        cmd_learning(cfg, rest)
     elif cmd in ("-h", "--help", "help"):
         print(__doc__)
     else:

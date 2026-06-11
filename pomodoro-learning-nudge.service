@@ -1,0 +1,6 @@
+[Unit]
+Description=Pomodoro daily-learning nudge (notify if nothing logged today)
+
+[Service]
+Type=oneshot
+ExecStart=%h/pomodoro/pomodoro learning nudge
