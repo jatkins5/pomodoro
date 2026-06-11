@@ -1,0 +1,3 @@
+# Only needed for `pomodoro motd build` (Claude extraction). The rest of the
+# CLI and the server are stdlib-only. install.sh installs these into .venv.
+anthropic

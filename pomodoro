@@ -946,14 +946,29 @@ def _fetch_text(url: str) -> str:
     return text[:40000]
 
 
+def _add_venv_site_packages() -> None:
+    """Make the repo-local .venv importable so `motd build` finds anthropic.
+
+    Lets the stdlib-shebang CLI pick up the venv's packages without running
+    under the venv interpreter. Only the matching Python version is added, so a
+    stale venv simply isn't used (and the import below raises a clear error).
+    """
+    ver = f"python{sys.version_info.major}.{sys.version_info.minor}"
+    site = Path(__file__).resolve().parent / ".venv" / "lib" / ver / "site-packages"
+    if site.is_dir() and str(site) not in sys.path:
+        sys.path.insert(0, str(site))
+
+
 def _extract_snippets(cfg: dict, url: str, text: str) -> dict:
     """Call Claude to extract key passages. Returns {"title", "snippets":[...]}."""
+    _add_venv_site_packages()
     try:
         import anthropic
         from pydantic import BaseModel
     except ImportError as e:
         raise RuntimeError(
-            "motd build needs the 'anthropic' package: pip install anthropic"
+            "motd build needs the 'anthropic' package — run ./install.sh "
+            "(creates .venv) or: pip install anthropic"
         ) from e
     if not os.environ.get("ANTHROPIC_API_KEY"):
         raise RuntimeError("motd build needs ANTHROPIC_API_KEY in the environment")

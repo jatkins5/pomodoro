@@ -7,6 +7,14 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 UNIT_NAME=pomodoro-server.service
 UNIT_DIR="$HOME/.config/systemd/user"
 
+# Python venv for optional features (motd build needs the anthropic SDK).
+# The CLI adds .venv to sys.path on demand, so nothing else has to run under it.
+if [ ! -d "$REPO/.venv" ]; then
+  python3 -m venv "$REPO/.venv"
+fi
+"$REPO/.venv/bin/pip" install --quiet --upgrade pip
+"$REPO/.venv/bin/pip" install --quiet -r "$REPO/requirements.txt"
+
 mkdir -p "$UNIT_DIR"
 ln -sfn "$REPO/$UNIT_NAME" "$UNIT_DIR/$UNIT_NAME"
 for unit in pomodoro-learning-nudge.service pomodoro-learning-nudge.timer \
