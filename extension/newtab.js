@@ -174,9 +174,6 @@ function renderLearnings() {
   const hour = new Date().getHours();
   const urgent = entries.length === 0 && hour >= (learningsToday.prompt_hour ?? 18);
   learningsPanel.classList.toggle("urgent", urgent);
-  learningInput.placeholder = urgent
-    ? "You haven't recorded a learning today — what did you learn?"
-    : "What did you learn today?";
   learningList.replaceChildren();
   for (const e of entries) {
     learningList.appendChild(el(`<li class="learning">${esc(e.text)}</li>`));
@@ -580,6 +577,24 @@ completedToggle.addEventListener("click", () => {
   showCompleted = !showCompleted;
   renderTasks();
 });
+function growLearningInput() {
+  // Grow to fit the text, but only up to the space left below the box (so the
+  // page never scrolls); past that, the textarea itself shows a scrollbar.
+  learningInput.style.height = "auto";
+  const top = learningInput.getBoundingClientRect().top;
+  const listH = learningList.getBoundingClientRect().height;
+  const avail = window.innerHeight - top - listH - 32; // room for the list + bottom gap
+  const target = Math.min(learningInput.scrollHeight, Math.max(avail, 60));
+  learningInput.style.height = `${target}px`;
+}
+learningInput.addEventListener("input", growLearningInput);
+learningInput.addEventListener("keydown", (e) => {
+  // Enter submits; Shift+Enter inserts a newline.
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    learningForm.requestSubmit();
+  }
+});
 learningForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   const text = learningInput.value.trim();
@@ -587,6 +602,7 @@ learningForm.addEventListener("submit", async (e) => {
   const result = await postAction("/learnings", { text });
   if (result.error) { alert(`Error: ${result.error}`); return; }
   learningInput.value = "";
+  growLearningInput();
   refresh();
 });
 motdPhrase.addEventListener("click", () => {

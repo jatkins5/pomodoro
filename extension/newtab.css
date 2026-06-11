@@ -579,6 +579,10 @@ button.ghost:hover { background: #f2f2f2; color: #333; }
   border-radius: 8px;
   font-size: 0.95rem;
   font-family: inherit;
+  line-height: 1.45;
+  display: block;
+  resize: none;
+  overflow-y: auto;
 }
 
 #learning-input:focus {
@@ -590,6 +594,8 @@ button.ghost:hover { background: #f2f2f2; color: #333; }
   list-style: none;
   margin: 0.6rem 0 0;
   padding: 0;
+  max-height: 30vh;
+  overflow-y: auto;
 }
 
 .learning-list:empty { display: none; }
