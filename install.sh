@@ -7,14 +7,6 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 UNIT_NAME=pomodoro-server.service
 UNIT_DIR="$HOME/.config/systemd/user"
 
-# Python venv for optional features (motd build needs the anthropic SDK).
-# The CLI adds .venv to sys.path on demand, so nothing else has to run under it.
-if [ ! -d "$REPO/.venv" ]; then
-  python3 -m venv "$REPO/.venv"
-fi
-"$REPO/.venv/bin/pip" install --quiet --upgrade pip
-"$REPO/.venv/bin/pip" install --quiet -r "$REPO/requirements.txt"
-
 mkdir -p "$UNIT_DIR"
 ln -sfn "$REPO/$UNIT_NAME" "$UNIT_DIR/$UNIT_NAME"
 for unit in pomodoro-learning-nudge.service pomodoro-learning-nudge.timer \
@@ -41,8 +33,8 @@ echo "  3. Click 'Load unpacked' and select: $REPO/extension"
 echo
 echo "Open a new tab to verify. The extension fetches http://127.0.0.1:17234/status."
 echo
-echo "Message of the day: add sources, then build (needs ANTHROPIC_API_KEY):"
+echo "Message of the day: add sources, then build (needs OPENROUTER_API_KEY):"
 echo "  $REPO/pomodoro motd add https://example.com/post"
-echo "  ANTHROPIC_API_KEY=... $REPO/pomodoro motd build"
+echo "  OPENROUTER_API_KEY=... $REPO/pomodoro motd build"
 echo "Optionally enable the weekly rebuild once the key is set in the service:"
 echo "  systemctl --user enable --now pomodoro-motd-build.timer"

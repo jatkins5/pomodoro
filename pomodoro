@@ -37,7 +37,9 @@ Log:     ~/.local/state/pomodoro/log.jsonl
 Learnings: ~/.local/state/pomodoro/learnings.jsonl
 MOTD:    ~/.local/state/pomodoro/motd_sources.json, motd_snippets.json
 
-`motd build` needs the `anthropic` package and ANTHROPIC_API_KEY; nothing else does.
+`motd build` calls an OpenRouter (OpenAI-compatible) model and needs
+OPENROUTER_API_KEY; nothing else does. No third-party packages — stdlib only.
+Model and endpoint are configurable via `motd_model` / `motd_base_url` in config.
 """
 
 import hashlib
@@ -78,7 +80,8 @@ DEFAULTS = {
     "notify": True,
     "learning_prompt_hour": 18,
     "learning_nudge_hour": 21,
-    "motd_model": "claude-sonnet-4-6",
+    "motd_model": "anthropic/claude-sonnet-4.6",
+    "motd_base_url": "https://openrouter.ai/api/v1",
     "colors": {
         "focus": "#FF6B6B",
         "short_break": "#51CF66",
@@ -946,56 +949,88 @@ def _fetch_text(url: str) -> str:
     return text[:40000]
 
 
-def _add_venv_site_packages() -> None:
-    """Make the repo-local .venv importable so `motd build` finds anthropic.
-
-    Lets the stdlib-shebang CLI pick up the venv's packages without running
-    under the venv interpreter. Only the matching Python version is added, so a
-    stale venv simply isn't used (and the import below raises a clear error).
-    """
-    ver = f"python{sys.version_info.major}.{sys.version_info.minor}"
-    site = Path(__file__).resolve().parent / ".venv" / "lib" / ver / "site-packages"
-    if site.is_dir() and str(site) not in sys.path:
-        sys.path.insert(0, str(site))
+def _loads_lenient(content: str) -> dict:
+    """Parse a JSON object that may be wrapped in prose or ```json fences."""
+    content = content.strip()
+    if content.startswith("```"):
+        content = re.sub(r"^```[a-zA-Z]*\n?|\n?```$", "", content).strip()
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        m = re.search(r"\{.*\}", content, re.DOTALL)
+        if m:
+            return json.loads(m.group(0))
+        raise
 
 
 def _extract_snippets(cfg: dict, url: str, text: str) -> dict:
-    """Call Claude to extract key passages. Returns {"title", "snippets":[...]}."""
-    _add_venv_site_packages()
-    try:
-        import anthropic
-        from pydantic import BaseModel
-    except ImportError as e:
-        raise RuntimeError(
-            "motd build needs the 'anthropic' package — run ./install.sh "
-            "(creates .venv) or: pip install anthropic"
-        ) from e
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        raise RuntimeError("motd build needs ANTHROPIC_API_KEY in the environment")
+    """Extract key passages via an OpenRouter (OpenAI-compatible) chat model.
 
-    class Snippet(BaseModel):
-        phrase: str
-        context: str
-        why: str
+    Returns {"title": str, "snippets": [{"phrase","context","why"}, ...]}.
+    Uses stdlib urllib — no third-party packages.
+    """
+    import urllib.error
+    import urllib.request
 
-    class Extraction(BaseModel):
-        title: str
-        snippets: list[Snippet]
+    api_key = os.environ.get("OPENROUTER_API_KEY")
+    if not api_key:
+        raise RuntimeError("motd build needs OPENROUTER_API_KEY in the environment")
 
-    client = anthropic.Anthropic()
-    resp = client.messages.parse(
-        model=cfg.get("motd_model", "claude-sonnet-4-6"),
-        max_tokens=8000,
-        thinking={"type": "adaptive"},
-        output_config={"effort": "high"},
-        system=MOTD_SYSTEM,
-        messages=[{"role": "user", "content": f"Source URL: {url}\n\n{text}"}],
-        output_format=Extraction,
+    schema = {
+        "type": "object",
+        "properties": {
+            "title": {"type": "string"},
+            "snippets": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "phrase": {"type": "string"},
+                        "context": {"type": "string"},
+                        "why": {"type": "string"},
+                    },
+                    "required": ["phrase", "context", "why"],
+                    "additionalProperties": False,
+                },
+            },
+        },
+        "required": ["title", "snippets"],
+        "additionalProperties": False,
+    }
+    payload = {
+        "model": cfg.get("motd_model", "anthropic/claude-sonnet-4.6"),
+        "max_tokens": 8000,
+        "messages": [
+            {"role": "system", "content": MOTD_SYSTEM},
+            {"role": "user", "content": f"Source URL: {url}\n\n{text}"},
+        ],
+        "response_format": {
+            "type": "json_schema",
+            "json_schema": {"name": "extraction", "strict": True, "schema": schema},
+        },
+    }
+    base = cfg.get("motd_base_url", "https://openrouter.ai/api/v1").rstrip("/")
+    req = urllib.request.Request(
+        f"{base}/chat/completions",
+        data=json.dumps(payload).encode(),
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            "X-Title": "pomodoro motd",
+        },
+        method="POST",
     )
-    parsed = resp.parsed_output
-    if parsed is None:
-        raise RuntimeError(f"no extraction returned (stop_reason={resp.stop_reason})")
-    return parsed.model_dump()
+    try:
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            data = json.loads(resp.read().decode())
+    except urllib.error.HTTPError as e:
+        body = e.read().decode(errors="replace")[:500]
+        raise RuntimeError(f"OpenRouter HTTP {e.code}: {body}") from e
+    try:
+        content = data["choices"][0]["message"]["content"]
+    except (KeyError, IndexError) as e:
+        raise RuntimeError(f"unexpected OpenRouter response: {json.dumps(data)[:300]}") from e
+    return _loads_lenient(content)
 
 
 def cmd_motd(cfg: dict, args: list[str]) -> None:
