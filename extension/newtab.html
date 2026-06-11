@@ -8,6 +8,14 @@
 <body>
   <main>
     <div class="left-col">
+      <section id="motd" class="motd" hidden>
+        <button id="motd-phrase" class="motd-phrase" type="button"></button>
+        <div id="motd-detail" class="motd-detail" hidden>
+          <p id="motd-context" class="motd-context"></p>
+          <p id="motd-why" class="motd-why"></p>
+          <a id="motd-source" class="motd-source" target="_blank" rel="noopener"></a>
+        </div>
+      </section>
       <div id="root">
         <div class="card loading"><h1>Loading…</h1></div>
       </div>
@@ -61,14 +69,6 @@
       <div id="completed-section" class="completed-section" hidden>
         <button id="completed-toggle" class="ghost completed-toggle"></button>
         <ul id="completed-list" class="task-list completed" hidden></ul>
-      </div>
-    </section>
-    <section id="motd" class="motd" hidden>
-      <button id="motd-phrase" class="motd-phrase" type="button"></button>
-      <div id="motd-detail" class="motd-detail" hidden>
-        <p id="motd-context" class="motd-context"></p>
-        <p id="motd-why" class="motd-why"></p>
-        <a id="motd-source" class="motd-source" target="_blank" rel="noopener"></a>
       </div>
     </section>
   </main>

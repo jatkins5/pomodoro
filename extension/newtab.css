@@ -26,18 +26,15 @@ main {
   padding: 2rem;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 440px;
-  grid-template-rows: 1fr auto;
   column-gap: 3.5rem;
-  row-gap: 1rem;
   align-items: center;
   text-align: center;
 }
 
-/* Left column: pomodoro card with the learning box stacked beneath it,
-   centered as a group against the (taller) task list on the right. */
+/* Left column: the message of the day, the pomodoro card, and the learning
+   box stacked and centered as a group against the (taller) task list. */
 .left-col {
   grid-column: 1;
-  grid-row: 1;
   align-self: stretch;
   display: flex;
   flex-direction: column;
@@ -45,8 +42,7 @@ main {
   align-items: center;
   gap: 1.25rem;
 }
-#tasks { grid-column: 2; grid-row: 1; }
-#motd { grid-column: 1 / -1; grid-row: 2; }
+#tasks { grid-column: 2; }
 
 #root {
   max-width: 560px;
@@ -620,17 +616,18 @@ button.ghost:hover { background: #f2f2f2; color: #333; }
   font-size: 1.05rem;
 }
 
-/* Message of the day */
+/* Message of the day — sits at the top of the left column, above the card */
 .motd {
+  width: 100%;
+  max-width: 560px;
   text-align: center;
-  margin-top: 1rem;
 }
 
 .motd-phrase {
   background: none;
   border: none;
   margin: 0 auto;
-  max-width: 760px;
+  max-width: 100%;
   padding: 0.5rem 1rem;
   font-size: 1.05rem;
   font-style: italic;
@@ -648,7 +645,6 @@ button.ghost:hover { background: #f2f2f2; color: #333; }
 }
 
 .motd-detail {
-  max-width: 640px;
   margin: 0.5rem auto 0;
   padding: 1rem 1.25rem;
   border: 1px solid #e2e2e2;
