@@ -3,6 +3,6 @@ Description=Pomodoro MOTD build (extract key passages from pending sources)
 
 [Service]
 Type=oneshot
+# Reads OPENROUTER_API_KEY from the repo .env (the CLI also loads it itself).
+EnvironmentFile=-%h/pomodoro/.env
 ExecStart=%h/pomodoro/pomodoro motd build
-# Needs OPENROUTER_API_KEY — set it here or drop it in an EnvironmentFile.
-# Environment=OPENROUTER_API_KEY=...

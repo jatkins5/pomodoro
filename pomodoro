@@ -38,8 +38,9 @@ Learnings: ~/.local/state/pomodoro/learnings.jsonl
 MOTD:    ~/.local/state/pomodoro/motd_sources.json, motd_snippets.json
 
 `motd build` calls an OpenRouter (OpenAI-compatible) model and needs
-OPENROUTER_API_KEY; nothing else does. No third-party packages — stdlib only.
-Model and endpoint are configurable via `motd_model` / `motd_base_url` in config.
+OPENROUTER_API_KEY (read from the environment or a repo-local .env); nothing
+else does. No third-party packages — stdlib only. Model and endpoint are
+configurable via `motd_model` / `motd_base_url` in config.
 """
 
 import hashlib
@@ -963,6 +964,24 @@ def _loads_lenient(content: str) -> dict:
         raise
 
 
+def _load_dotenv() -> None:
+    """Load KEY=VALUE pairs from a repo-local .env (without overriding real env)."""
+    path = Path(__file__).resolve().parent / ".env"
+    if not path.exists():
+        return
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if line.startswith("export "):
+            line = line[len("export "):]
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, val = line.partition("=")
+        key = key.strip()
+        val = val.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = val
+
+
 def _extract_snippets(cfg: dict, url: str, text: str) -> dict:
     """Extract key passages via an OpenRouter (OpenAI-compatible) chat model.
 
@@ -972,6 +991,7 @@ def _extract_snippets(cfg: dict, url: str, text: str) -> dict:
     import urllib.error
     import urllib.request
 
+    _load_dotenv()
     api_key = os.environ.get("OPENROUTER_API_KEY")
     if not api_key:
         raise RuntimeError("motd build needs OPENROUTER_API_KEY in the environment")
