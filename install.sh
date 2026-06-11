@@ -9,12 +9,16 @@ UNIT_DIR="$HOME/.config/systemd/user"
 
 mkdir -p "$UNIT_DIR"
 ln -sfn "$REPO/$UNIT_NAME" "$UNIT_DIR/$UNIT_NAME"
-for unit in pomodoro-learning-nudge.service pomodoro-learning-nudge.timer; do
+for unit in pomodoro-learning-nudge.service pomodoro-learning-nudge.timer \
+            pomodoro-motd-build.service pomodoro-motd-build.timer; do
   ln -sfn "$REPO/$unit" "$UNIT_DIR/$unit"
 done
 systemctl --user daemon-reload
 systemctl --user enable --now "$UNIT_NAME"
 systemctl --user enable --now pomodoro-learning-nudge.timer
+# The MOTD build timer is installed but left disabled — it needs ANTHROPIC_API_KEY.
+# Set the key (Environment= in pomodoro-motd-build.service, or an EnvironmentFile),
+# then: systemctl --user enable --now pomodoro-motd-build.timer
 
 echo
 echo "Server installed and running."
@@ -26,3 +30,9 @@ echo "  2. Enable Developer mode (top-right toggle)"
 echo "  3. Click 'Load unpacked' and select: $REPO/extension"
 echo
 echo "Open a new tab to verify. The extension fetches http://127.0.0.1:17234/status."
+echo
+echo "Message of the day: add sources, then build (needs ANTHROPIC_API_KEY):"
+echo "  $REPO/pomodoro motd add https://example.com/post"
+echo "  ANTHROPIC_API_KEY=... $REPO/pomodoro motd build"
+echo "Optionally enable the weekly rebuild once the key is set in the service:"
+echo "  systemctl --user enable --now pomodoro-motd-build.timer"

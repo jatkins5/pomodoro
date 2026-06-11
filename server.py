@@ -16,6 +16,7 @@ Endpoints:
   POST /tasks/<id>/delete
   GET  /learnings[?today=1] -> list learnings (or today's summary)
   POST /learnings           -> body {text}
+  GET  /motd                -> today's message of the day (or {} if none)
 
 Binds to 127.0.0.1 only. Port defaults to 17234, override with POMODORO_PORT.
 CORS is open (*) — safe because we only listen on the loopback interface.
@@ -94,6 +95,9 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, run_cli("learning", "today"))
             else:
                 self._send(200, run_cli("learning", "list"))
+            return
+        if self.path == "/motd":
+            self._send(200, run_cli("motd", "current", "--json"))
             return
         self._send(404, {"error": "not found"})
 

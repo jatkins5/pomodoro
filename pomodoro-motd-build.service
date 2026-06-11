@@ -1,0 +1,8 @@
+[Unit]
+Description=Pomodoro MOTD build (extract key passages from pending sources)
+
+[Service]
+Type=oneshot
+ExecStart=%h/pomodoro/pomodoro motd build
+# Needs ANTHROPIC_API_KEY — set it here or drop it in an EnvironmentFile.
+# Environment=ANTHROPIC_API_KEY=...

@@ -24,14 +24,23 @@ Subcommands:
   learning list [--today]
   learning today                   JSON: {date, count, logged, prompt_hour, entries}.
   learning nudge                   Notify if nothing learned today (for the evening timer).
+  motd add <url>                   Register a source document URL.
+  motd sources                     List registered sources.
+  motd remove <id>                 Drop a source and its snippets.
+  motd build [--source ID] [--force]   Fetch sources and extract key passages via Claude.
+  motd current [--json]            Print today's message of the day.
 
 Config:  ~/.config/pomodoro/config.json (auto-created with defaults)
 State:   ~/.local/state/pomodoro/state.json
 Tasks:   ~/.local/state/pomodoro/tasks.json
 Log:     ~/.local/state/pomodoro/log.jsonl
 Learnings: ~/.local/state/pomodoro/learnings.jsonl
+MOTD:    ~/.local/state/pomodoro/motd_sources.json, motd_snippets.json
+
+`motd build` needs the `anthropic` package and ANTHROPIC_API_KEY; nothing else does.
 """
 
+import hashlib
 import json
 import os
 import re
@@ -55,6 +64,8 @@ STATE_PATH = STATE_DIR / "state.json"
 LOG_PATH = STATE_DIR / "log.jsonl"
 TASKS_PATH = STATE_DIR / "tasks.json"
 LEARNINGS_PATH = STATE_DIR / "learnings.jsonl"
+MOTD_SOURCES_PATH = STATE_DIR / "motd_sources.json"
+MOTD_SNIPPETS_PATH = STATE_DIR / "motd_snippets.json"
 MUTE_MARKER = STATE_DIR / "mute_since_id"
 MEDIA_MARKER = STATE_DIR / "paused_media"
 
@@ -67,6 +78,7 @@ DEFAULTS = {
     "notify": True,
     "learning_prompt_hour": 18,
     "learning_nudge_hour": 21,
+    "motd_model": "claude-sonnet-4-6",
     "colors": {
         "focus": "#FF6B6B",
         "short_break": "#51CF66",
@@ -869,6 +881,248 @@ def cmd_learning(cfg: dict, args: list[str]) -> None:
     sys.exit(1)
 
 
+def load_json_list(path) -> list[dict]:
+    if not path.exists():
+        return []
+    try:
+        data = json.loads(path.read_text())
+        return data if isinstance(data, list) else []
+    except json.JSONDecodeError:
+        return []
+
+
+def save_json_list(path, data: list[dict]) -> None:
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, indent=2) + "\n")
+    tmp.replace(path)
+
+
+MOTD_SYSTEM = (
+    "You extract the most important passages from a document so they can be surfaced "
+    "one at a time as a daily message. Read the document and pick the 3-5 most insightful, "
+    "memorable, or quotable passages — the ideas worth re-encountering, not filler or "
+    "boilerplate. For each, return: `phrase` (the key sentence or two, quoted closely from "
+    "the text), `context` (the surrounding passage that makes the phrase make sense, a few "
+    "sentences), and `why` (one short line on why it matters). Also return a `title` for the "
+    "document. Ignore navigation, headers, footers, and ads."
+)
+
+
+def _fetch_text(url: str) -> str:
+    """Fetch a URL and return its visible text (stdlib only)."""
+    import urllib.request
+    from html.parser import HTMLParser
+
+    class _Extractor(HTMLParser):
+        SKIP = {"script", "style", "head", "noscript", "svg", "template"}
+
+        def __init__(self):
+            super().__init__()
+            self.parts: list[str] = []
+            self._skip = 0
+
+        def handle_starttag(self, tag, attrs):
+            if tag in self.SKIP:
+                self._skip += 1
+
+        def handle_endtag(self, tag):
+            if tag in self.SKIP and self._skip:
+                self._skip -= 1
+
+        def handle_data(self, data):
+            if not self._skip:
+                text = data.strip()
+                if text:
+                    self.parts.append(text)
+
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (pomodoro motd)"})
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        charset = resp.headers.get_content_charset() or "utf-8"
+        html = resp.read().decode(charset, errors="replace")
+    parser = _Extractor()
+    parser.feed(html)
+    text = re.sub(r"\n{3,}", "\n\n", "\n".join(parser.parts))
+    return text[:40000]
+
+
+def _extract_snippets(cfg: dict, url: str, text: str) -> dict:
+    """Call Claude to extract key passages. Returns {"title", "snippets":[...]}."""
+    try:
+        import anthropic
+        from pydantic import BaseModel
+    except ImportError as e:
+        raise RuntimeError(
+            "motd build needs the 'anthropic' package: pip install anthropic"
+        ) from e
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        raise RuntimeError("motd build needs ANTHROPIC_API_KEY in the environment")
+
+    class Snippet(BaseModel):
+        phrase: str
+        context: str
+        why: str
+
+    class Extraction(BaseModel):
+        title: str
+        snippets: list[Snippet]
+
+    client = anthropic.Anthropic()
+    resp = client.messages.parse(
+        model=cfg.get("motd_model", "claude-sonnet-4-6"),
+        max_tokens=8000,
+        thinking={"type": "adaptive"},
+        output_config={"effort": "high"},
+        system=MOTD_SYSTEM,
+        messages=[{"role": "user", "content": f"Source URL: {url}\n\n{text}"}],
+        output_format=Extraction,
+    )
+    parsed = resp.parsed_output
+    if parsed is None:
+        raise RuntimeError(f"no extraction returned (stop_reason={resp.stop_reason})")
+    return parsed.model_dump()
+
+
+def cmd_motd(cfg: dict, args: list[str]) -> None:
+    if not args:
+        print("usage: pomodoro motd {add|sources|remove|build|current}", file=sys.stderr)
+        sys.exit(1)
+    sub, rest = args[0], args[1:]
+
+    if sub == "add":
+        if not rest:
+            print(json.dumps({"error": "url required"}), file=sys.stderr)
+            sys.exit(1)
+        url = rest[0].strip()
+        if not re.match(r"^https?://", url):
+            print(json.dumps({"error": "url must start with http:// or https://"}), file=sys.stderr)
+            sys.exit(1)
+        sources = load_json_list(MOTD_SOURCES_PATH)
+        source = {
+            "id": max((s.get("id", 0) for s in sources), default=0) + 1,
+            "url": url,
+            "title": None,
+            "added_at": now_iso(),
+            "built_at": None,
+            "status": "pending",
+        }
+        sources.append(source)
+        save_json_list(MOTD_SOURCES_PATH, sources)
+        print(json.dumps(source))
+        return
+
+    if sub == "sources":
+        print(json.dumps(load_json_list(MOTD_SOURCES_PATH)))
+        return
+
+    if sub == "remove":
+        if not rest:
+            print(json.dumps({"error": "id required"}), file=sys.stderr)
+            sys.exit(1)
+        try:
+            sid = int(rest[0])
+        except ValueError:
+            print(json.dumps({"error": "id must be integer"}), file=sys.stderr)
+            sys.exit(1)
+        sources = load_json_list(MOTD_SOURCES_PATH)
+        if not any(s.get("id") == sid for s in sources):
+            print(json.dumps({"error": "not found"}), file=sys.stderr)
+            sys.exit(1)
+        save_json_list(MOTD_SOURCES_PATH, [s for s in sources if s.get("id") != sid])
+        snippets = load_json_list(MOTD_SNIPPETS_PATH)
+        save_json_list(MOTD_SNIPPETS_PATH, [s for s in snippets if s.get("source_id") != sid])
+        print(json.dumps({"removed": sid}))
+        return
+
+    if sub == "build":
+        only = None
+        if "--source" in rest:
+            try:
+                only = int(rest[rest.index("--source") + 1])
+            except (ValueError, IndexError):
+                print(json.dumps({"error": "--source needs an integer id"}), file=sys.stderr)
+                sys.exit(1)
+        force = "--force" in rest
+        sources = load_json_list(MOTD_SOURCES_PATH)
+        snippets = load_json_list(MOTD_SNIPPETS_PATH)
+        next_id = max((s.get("id", 0) for s in snippets), default=0)
+        built, failed = 0, 0
+        for src in sources:
+            if only is not None and src.get("id") != only:
+                continue
+            if not force and src.get("status") == "built":
+                continue
+            print(f"building source {src['id']}: {src['url']}", file=sys.stderr)
+            try:
+                text = _fetch_text(src["url"])
+                if not text.strip():
+                    raise RuntimeError("fetched page had no extractable text")
+                result = _extract_snippets(cfg, src["url"], text)
+            except Exception as e:  # noqa: BLE001 — record any failure on the source
+                src["status"] = "error"
+                src["error"] = str(e)
+                failed += 1
+                print(f"  error: {e}", file=sys.stderr)
+                continue
+            # Replace any prior snippets for this source.
+            snippets = [s for s in snippets if s.get("source_id") != src["id"]]
+            src["title"] = result.get("title")
+            for snip in result.get("snippets", []):
+                next_id += 1
+                snippets.append({
+                    "id": next_id,
+                    "source_id": src["id"],
+                    "source_url": src["url"],
+                    "source_title": src.get("title"),
+                    "phrase": snip.get("phrase", ""),
+                    "context": snip.get("context", ""),
+                    "why": snip.get("why", ""),
+                    "created_at": now_iso(),
+                })
+            src["status"] = "built"
+            src["built_at"] = now_iso()
+            src.pop("error", None)
+            built += 1
+            print(f"  extracted {len(result.get('snippets', []))} passages", file=sys.stderr)
+            # Persist after each source so a later failure doesn't lose earlier work.
+            save_json_list(MOTD_SOURCES_PATH, sources)
+            save_json_list(MOTD_SNIPPETS_PATH, snippets)
+        save_json_list(MOTD_SOURCES_PATH, sources)
+        save_json_list(MOTD_SNIPPETS_PATH, snippets)
+        print(json.dumps({"built": built, "failed": failed, "snippets": len(snippets)}))
+        return
+
+    if sub == "current":
+        snippets = load_json_list(MOTD_SNIPPETS_PATH)
+        as_json = "--json" in rest
+        if not snippets:
+            if as_json:
+                print(json.dumps({}))
+            else:
+                print("No message of the day yet. Add a source and run `motd build`.")
+            return
+        today = datetime.now().date().isoformat()
+        idx = int(hashlib.sha1(today.encode()).hexdigest(), 16) % len(snippets)
+        s = snippets[idx]
+        chosen = {
+            "phrase": s.get("phrase", ""),
+            "context": s.get("context", ""),
+            "why": s.get("why", ""),
+            "source_url": s.get("source_url"),
+            "source_title": s.get("source_title"),
+        }
+        if as_json:
+            print(json.dumps(chosen))
+        else:
+            print(chosen["phrase"])
+            if chosen["source_title"]:
+                print(f"  — {chosen['source_title']}")
+        return
+
+    print(f"unknown motd subcommand: {sub}", file=sys.stderr)
+    sys.exit(1)
+
+
 def cmd_pause_reason(args: list[str]) -> None:
     if not shutil.which("rofi"):
         return
@@ -940,7 +1194,7 @@ def cmd_notifications(args: list[str]) -> None:
         _dunstctl("history-pop", str(items[idx]["id"]))
 
 
-USAGE = "usage: pomodoro {toggle|stop|skip|reset|status [--json|--i3blocks]|analyze [--today|--week|--all]|notifications [--since-id N]|pause-reason [--duration N]|tasks {list|add|update|complete|uncomplete|delete} ...|set-task|learning {add|list|today|nudge}}"
+USAGE = "usage: pomodoro {toggle|stop|skip|reset|status [--json|--i3blocks]|analyze [--today|--week|--all]|notifications [--since-id N]|pause-reason [--duration N]|tasks {list|add|update|complete|uncomplete|delete} ...|set-task|learning {add|list|today|nudge}|motd {add|sources|remove|build|current}}"
 
 
 def main() -> None:
@@ -972,6 +1226,8 @@ def main() -> None:
         cmd_set_task()
     elif cmd == "learning":
         cmd_learning(cfg, rest)
+    elif cmd == "motd":
+        cmd_motd(cfg, rest)
     elif cmd in ("-h", "--help", "help"):
         print(__doc__)
     else:

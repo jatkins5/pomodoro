@@ -20,6 +20,12 @@ const learningsPanel = document.getElementById("learnings");
 const learningForm = document.getElementById("learning-form");
 const learningInput = document.getElementById("learning-input");
 const learningList = document.getElementById("learning-list");
+const motdPanel = document.getElementById("motd");
+const motdPhrase = document.getElementById("motd-phrase");
+const motdDetail = document.getElementById("motd-detail");
+const motdContext = document.getElementById("motd-context");
+const motdWhy = document.getElementById("motd-why");
+const motdSource = document.getElementById("motd-source");
 
 let countdownTimer = null;
 let pomState = null;
@@ -30,6 +36,7 @@ let idleTaskText = "";
 let activeTag = null;
 let editTaskId = null;
 let learningsToday = null;
+let motd = null;
 
 const TAG_RE = /(?:^|\s)#([A-Za-z0-9_-]+)/g;
 
@@ -126,9 +133,35 @@ async function refresh() {
   } catch (e) {
     learningsToday = null;
   }
+  try {
+    motd = await api("GET", "/motd");
+  } catch (e) {
+    motd = null;
+  }
   render();
   renderTasks();
   renderLearnings();
+  renderMotd();
+}
+
+function renderMotd() {
+  if (!motd || !motd.phrase) {
+    motdPanel.hidden = true;
+    return;
+  }
+  motdPanel.hidden = false;
+  motdPhrase.textContent = motd.phrase;
+  motdContext.textContent = motd.context || "";
+  motdContext.hidden = !motd.context;
+  motdWhy.textContent = motd.why || "";
+  motdWhy.hidden = !motd.why;
+  if (motd.source_url) {
+    motdSource.hidden = false;
+    motdSource.href = motd.source_url;
+    motdSource.textContent = motd.source_title || motd.source_url;
+  } else {
+    motdSource.hidden = true;
+  }
 }
 
 function renderLearnings() {
@@ -555,6 +588,10 @@ learningForm.addEventListener("submit", async (e) => {
   if (result.error) { alert(`Error: ${result.error}`); return; }
   learningInput.value = "";
   refresh();
+});
+motdPhrase.addEventListener("click", () => {
+  motdDetail.hidden = !motdDetail.hidden;
+  motdPanel.classList.toggle("open", !motdDetail.hidden);
 });
 
 refresh();
