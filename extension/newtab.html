@@ -7,16 +7,18 @@
 </head>
 <body>
   <main>
-    <div id="root">
-      <div class="card loading"><h1>Loading…</h1></div>
+    <div class="left-col">
+      <div id="root">
+        <div class="card loading"><h1>Loading…</h1></div>
+      </div>
+      <section id="learnings" class="learnings-panel" hidden>
+        <form id="learning-form" class="learning-form">
+          <input type="text" id="learning-input" name="text"
+                 placeholder="What did you learn today?" autocomplete="off">
+        </form>
+        <ul id="learning-list" class="learning-list"></ul>
+      </section>
     </div>
-    <section id="learnings" class="learnings-panel" hidden>
-      <form id="learning-form" class="learning-form">
-        <input type="text" id="learning-input" name="text"
-               placeholder="What did you learn today?" autocomplete="off">
-      </form>
-      <ul id="learning-list" class="learning-list"></ul>
-    </section>
     <section id="tasks" class="tasks-panel" hidden>
       <div class="tasks-header">
         <h2>Tasks</h2>

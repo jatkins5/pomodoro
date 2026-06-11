@@ -15,6 +15,8 @@ for unit in pomodoro-learning-nudge.service pomodoro-learning-nudge.timer \
 done
 systemctl --user daemon-reload
 systemctl --user enable --now "$UNIT_NAME"
+# Restart so an already-running server picks up code changes on reinstall.
+systemctl --user restart "$UNIT_NAME"
 systemctl --user enable --now pomodoro-learning-nudge.timer
 # The MOTD build timer is installed but left disabled — it needs ANTHROPIC_API_KEY.
 # Set the key (Environment= in pomodoro-motd-build.service, or an EnvironmentFile),

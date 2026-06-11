@@ -26,17 +26,27 @@ main {
   padding: 2rem;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 440px;
-  grid-template-rows: auto 1fr auto;
+  grid-template-rows: 1fr auto;
   column-gap: 3.5rem;
   row-gap: 1rem;
   align-items: center;
   text-align: center;
 }
 
-#root { grid-column: 1; grid-row: 1 / 3; }
-#learnings { grid-column: 2; grid-row: 1; align-self: end; }
-#tasks { grid-column: 2; grid-row: 2; align-self: start; }
-#motd { grid-column: 1 / -1; grid-row: 3; }
+/* Left column: pomodoro card with the learning box stacked beneath it,
+   centered as a group against the (taller) task list on the right. */
+.left-col {
+  grid-column: 1;
+  grid-row: 1;
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 1.25rem;
+}
+#tasks { grid-column: 2; grid-row: 1; }
+#motd { grid-column: 1 / -1; grid-row: 2; }
 
 #root {
   max-width: 560px;
@@ -550,6 +560,8 @@ button.ghost:hover { background: #f2f2f2; color: #333; }
 
 /* Daily learning ("today I learned") */
 .learnings-panel {
+  width: 100%;
+  max-width: 560px;
   padding: 1rem 1.25rem;
   border: 1px solid #e2e2e2;
   border-radius: 16px;
