@@ -502,7 +502,15 @@ button.ghost:hover { background: #f2f2f2; color: #333; }
   font-size: 0.8rem;
   color: #777;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
+.task-notes.clamped {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.task-notes.toggleable { cursor: pointer; }
 
 .task-actions {
   display: flex;

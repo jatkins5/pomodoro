@@ -342,7 +342,7 @@ function renderTaskRow(t) {
   for (const tag of (Array.isArray(t.tags) ? t.tags : [])) {
     chips.push(`<span class="chip tag">#${esc(tag)}</span>`);
   }
-  const notes = t.notes ? `<div class="task-notes">${esc(t.notes)}</div>` : "";
+  const notes = t.notes ? `<div class="task-notes clamped">${esc(t.notes)}</div>` : "";
   const meta = chips.length ? `<div class="task-meta">${chips.join("")}</div>` : "";
   const startBtn = isCompleted
     ? `<button class="uncomplete" data-act="uncomplete" title="Mark not completed">↩</button>`
@@ -368,6 +368,10 @@ function renderTaskRow(t) {
   li.querySelectorAll("button[data-act]").forEach((btn) => {
     btn.addEventListener("click", () => onTaskAction(t.id, btn.dataset.act));
   });
+  const noteEl = li.querySelector(".task-notes");
+  if (noteEl) {
+    noteEl.addEventListener("click", () => noteEl.classList.toggle("clamped"));
+  }
   return li;
 }
 
@@ -449,6 +453,20 @@ function renderTasks() {
     completedToggle.textContent = `${showCompleted ? "Hide" : "Show"} ${completed.length} completed`;
     completedList.hidden = !showCompleted;
   }
+
+  // Once sections are visible and laid out, give only the notes that actually
+  // overflow the 2-line clamp the click-to-expand affordance; show shorter
+  // notes in full and leave them un-clamped.
+  requestAnimationFrame(() => {
+    for (const noteEl of tasksPanel.querySelectorAll(".task-notes.clamped")) {
+      if (noteEl.offsetParent === null) continue; // not laid out (hidden section)
+      if (noteEl.scrollHeight - noteEl.clientHeight > 1) {
+        noteEl.classList.add("toggleable");
+      } else {
+        noteEl.classList.remove("clamped");
+      }
+    }
+  });
 }
 
 function combineDateTime(prefix, fd) {
