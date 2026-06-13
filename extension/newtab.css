@@ -764,6 +764,28 @@ body.modal-open { overflow: hidden; }
   color: #222;
   margin-right: 0.15rem;
 }
+.review-stat.earned b { color: #2b8a3e; }
+
+.review-work {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.review-work li {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  font-size: 0.92rem;
+  padding: 0.15rem 0;
+}
+.review-work-day {
+  min-width: 7.5rem;
+  color: #555;
+}
+.review-work-dur {
+  font-weight: 600;
+  color: #222;
+}
 
 .review-section {
   border-top: 1px solid #eee;

@@ -17,7 +17,7 @@ Endpoints:
   GET  /learnings[?today=1] -> list learnings (or today's summary)
   POST /learnings           -> body {text}
   GET  /motd                -> today's message of the day (or {} if none)
-  GET  /review              -> week-in-review report JSON (last Sun-Sat week)
+  GET  /review[?start=&end=] -> week-in-review report JSON (last Sun-Sat week)
 
 Binds to 127.0.0.1 only. Port defaults to 17234, override with POMODORO_PORT.
 CORS is open (*) — safe because we only listen on the loopback interface.
@@ -30,6 +30,7 @@ import subprocess
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 CLI = Path(__file__).resolve().parent / "pomodoro"
 PORT = int(os.environ.get("POMODORO_PORT", "17234"))
@@ -102,7 +103,13 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path == "/review" or self.path.startswith("/review?"):
             # Scans git repos across the filesystem — give it room beyond the default.
-            self._send(200, run_cli("review", "--json", timeout=60))
+            q = parse_qs(urlsplit(self.path).query)
+            args = ["review", "--json"]
+            if q.get("start"):
+                args += ["--start", q["start"][0]]
+            if q.get("end"):
+                args += ["--end", q["end"][0]]
+            self._send(200, run_cli(*args, timeout=60))
             return
         self._send(404, {"error": "not found"})
 

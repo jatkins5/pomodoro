@@ -158,6 +158,14 @@ function renderReviewButton() {
   reviewBtn.hidden = !reviewVisible();
 }
 
+function fmtDuration(secs) {
+  const h = Math.floor(secs / 3600);
+  const m = Math.round((secs % 3600) / 60);
+  if (h && m) return `${h}h ${m}m`;
+  if (h) return `${h}h`;
+  return `${m}m`;
+}
+
 function fmtReviewDate(iso) {
   if (!iso) return "";
   const d = new Date(iso);
@@ -177,12 +185,16 @@ function renderReview(r) {
   const learnings = Array.isArray(r.learnings) ? r.learnings : [];
   const repos = r.commits?.repos || [];
   const commitTotal = r.commits?.total || 0;
+  const work = r.work || {};
+  const earned = (work.earnings || 0).toLocaleString(undefined, { style: "currency", currency: "USD" });
 
   const header = el(`
     <div class="review-head">
       <h2 id="review-title">Week in review</h2>
       <p class="review-range">${esc(range)}</p>
       <div class="review-stats">
+        <span class="review-stat"><b>${(work.hours || 0).toFixed(1)}h</b> worked</span>
+        <span class="review-stat earned"><b>${esc(earned)}</b> earned</span>
         <span class="review-stat"><b>${commitTotal}</b> commits</span>
         <span class="review-stat"><b>${tasks.length}</b> tasks done</span>
         <span class="review-stat"><b>${learnings.length}</b> learnings</span>
@@ -190,6 +202,26 @@ function renderReview(r) {
       </div>
     </div>`);
   reviewContent.appendChild(header);
+
+  // Hours worked, per day.
+  const days = work.by_day || {};
+  const workSec = el(`<section class="review-section"><h3>Hours worked</h3></section>`);
+  const dayKeys = Object.keys(days).sort();
+  if (dayKeys.length === 0) {
+    workSec.appendChild(el(`<p class="review-empty">No hours logged this week.</p>`));
+  } else {
+    const list = el(`<ul class="review-work"></ul>`);
+    for (const day of dayKeys) {
+      const secs = days[day];
+      const dur = fmtDuration(secs);
+      const pay = (secs / 3600 * (work.rate || 0)).toLocaleString(undefined, { style: "currency", currency: "USD" });
+      list.appendChild(el(
+        `<li><span class="review-work-day">${esc(fmtReviewDate(day))}</span> <span class="review-work-dur">${esc(dur)}</span> <span class="review-when">${esc(pay)}</span></li>`
+      ));
+    }
+    workSec.appendChild(list);
+  }
+  reviewContent.appendChild(workSec);
 
   // Commits, grouped by repo.
   const commitSec = el(`<section class="review-section"><h3>Commits</h3></section>`);

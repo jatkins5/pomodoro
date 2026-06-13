@@ -95,6 +95,9 @@ DEFAULTS = {
         "johfst@gmail.com",
         "jeremy@trylido.com",
     ],
+    "workclock_log": str(Path.home() / ".workclock.log"),
+    "workclock_active": str(Path.home() / ".workclock.active"),
+    "workclock_rate": 75,
     "colors": {
         "focus": "#FF6B6B",
         "short_break": "#51CF66",
@@ -684,6 +687,58 @@ def repo_commits(repo: Path, emails: list[str], start: str, end: str) -> list[di
     return out
 
 
+def workclock_summary(cfg: dict, start: str, end: str) -> dict:
+    """Hours worked and earnings from the ~/.workclock.log (START,/STOP, lines)
+    for sessions whose start date falls within [start, end] inclusive."""
+    rate = float(cfg.get("workclock_rate", 75))
+    log_path = Path(cfg.get("workclock_log") or (Path.home() / ".workclock.log")).expanduser()
+    active_path = Path(cfg.get("workclock_active") or (Path.home() / ".workclock.active")).expanduser()
+    by_day: dict[str, float] = {}
+    total = 0.0
+
+    def add(begin: datetime, finish: datetime) -> None:
+        nonlocal total
+        day = begin.date().isoformat()
+        if not (start <= day <= end):
+            return
+        secs = (finish - begin).total_seconds()
+        if secs > 0:
+            total += secs
+            by_day[day] = by_day.get(day, 0.0) + secs
+
+    if log_path.exists():
+        cur: datetime | None = None
+        for line in log_path.read_text().splitlines():
+            action, _, ts = line.strip().partition(",")
+            if not ts:
+                continue
+            try:
+                dt = datetime.fromisoformat(ts.strip())
+            except ValueError:
+                continue
+            if action == "START":
+                cur = dt
+            elif action == "STOP" and cur is not None:
+                add(cur, dt)
+                cur = None
+    # A session in progress has a START in the log with no STOP yet; count it up to now.
+    if active_path.exists():
+        try:
+            begin = datetime.fromisoformat(active_path.read_text().strip())
+        except ValueError:
+            begin = None
+        if begin is not None:
+            add(begin, datetime.now())
+
+    return {
+        "total_seconds": int(total),
+        "hours": round(total / 3600, 2),
+        "earnings": round(total / 3600 * rate, 2),
+        "rate": rate,
+        "by_day": {d: int(s) for d, s in by_day.items()},
+    }
+
+
 def build_review(cfg: dict, start: str, end: str) -> dict:
     by_day: dict[str, int] = {}
     pomodoros = 0
@@ -727,6 +782,7 @@ def build_review(cfg: dict, start: str, end: str) -> dict:
     return {
         "start": start,
         "end": end,
+        "work": workclock_summary(cfg, start, end),
         "pomodoros": {"total": pomodoros, "by_day": by_day},
         "tasks": tasks_done,
         "learnings": learns,
@@ -753,6 +809,8 @@ def cmd_review(cfg: dict, args: list[str]) -> None:
         print(json.dumps(report))
         return
     print(f"Week in review: {report['start']} to {report['end']}\n")
+    w = report["work"]
+    print(f"Hours worked: {w['hours']:.2f}h  (${w['earnings']:.2f} @ ${w['rate']:.0f}/hr)")
     print(f"Pomodoros completed: {report['pomodoros']['total']}")
     print(f"Tasks completed: {len(report['tasks'])}")
     for t in report["tasks"]:
