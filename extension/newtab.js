@@ -26,6 +26,10 @@ const motdDetail = document.getElementById("motd-detail");
 const motdContext = document.getElementById("motd-context");
 const motdWhy = document.getElementById("motd-why");
 const motdSource = document.getElementById("motd-source");
+const reviewBtn = document.getElementById("review-btn");
+const reviewModal = document.getElementById("review-modal");
+const reviewContent = document.getElementById("review-content");
+const reviewClose = document.getElementById("review-close");
 
 let countdownTimer = null;
 let pomState = null;
@@ -142,6 +146,118 @@ async function refresh() {
   renderTasks();
   renderLearnings();
   renderMotd();
+  renderReviewButton();
+}
+
+// The week-in-review is a Sunday ritual: only surface the entry point then.
+function reviewVisible() {
+  return new Date().getDay() === 0;
+}
+
+function renderReviewButton() {
+  reviewBtn.hidden = !reviewVisible();
+}
+
+function fmtReviewDate(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+}
+
+function renderReview(r) {
+  reviewContent.replaceChildren();
+  if (!r || r.error) {
+    reviewContent.appendChild(el(`<p class="review-error">Couldn't load the report${r && r.error ? `: ${esc(r.error)}` : ""}.</p>`));
+    return;
+  }
+  const range = `${fmtReviewDate(r.start)} – ${fmtReviewDate(r.end)}`;
+  const pomos = r.pomodoros?.total || 0;
+  const tasks = Array.isArray(r.tasks) ? r.tasks : [];
+  const learnings = Array.isArray(r.learnings) ? r.learnings : [];
+  const repos = r.commits?.repos || [];
+  const commitTotal = r.commits?.total || 0;
+
+  const header = el(`
+    <div class="review-head">
+      <h2 id="review-title">Week in review</h2>
+      <p class="review-range">${esc(range)}</p>
+      <div class="review-stats">
+        <span class="review-stat"><b>${commitTotal}</b> commits</span>
+        <span class="review-stat"><b>${tasks.length}</b> tasks done</span>
+        <span class="review-stat"><b>${learnings.length}</b> learnings</span>
+        <span class="review-stat"><b>${pomos}</b> pomodoros</span>
+      </div>
+    </div>`);
+  reviewContent.appendChild(header);
+
+  // Commits, grouped by repo.
+  const commitSec = el(`<section class="review-section"><h3>Commits</h3></section>`);
+  if (repos.length === 0) {
+    commitSec.appendChild(el(`<p class="review-empty">No commits this week.</p>`));
+  } else {
+    for (const g of repos) {
+      const group = el(`
+        <div class="review-repo">
+          <div class="review-repo-name">${esc(g.repo)} <span class="review-count">${g.count}</span></div>
+          <ul class="review-commits"></ul>
+        </div>`);
+      const list = group.querySelector("ul");
+      for (const c of g.commits) {
+        list.appendChild(el(
+          `<li><code class="review-hash">${esc(c.hash)}</code> ${esc(c.subject)} <span class="review-when">${esc(fmtReviewDate(c.date))}</span></li>`
+        ));
+      }
+      commitSec.appendChild(group);
+    }
+  }
+  reviewContent.appendChild(commitSec);
+
+  // Tasks completed.
+  const taskSec = el(`<section class="review-section"><h3>Tasks completed</h3></section>`);
+  if (tasks.length === 0) {
+    taskSec.appendChild(el(`<p class="review-empty">No tasks completed this week.</p>`));
+  } else {
+    const list = el(`<ul class="review-tasks"></ul>`);
+    for (const t of tasks) {
+      const tags = (Array.isArray(t.tags) ? t.tags : [])
+        .map((x) => `<span class="chip tag">#${esc(x)}</span>`).join("");
+      list.appendChild(el(`<li>${esc(t.title)} ${tags}</li>`));
+    }
+    taskSec.appendChild(list);
+  }
+  reviewContent.appendChild(taskSec);
+
+  // Learnings (TIL).
+  const learnSec = el(`<section class="review-section"><h3>Things you learned</h3></section>`);
+  if (learnings.length === 0) {
+    learnSec.appendChild(el(`<p class="review-empty">No learnings logged this week.</p>`));
+  } else {
+    const list = el(`<ul class="review-learnings"></ul>`);
+    for (const e of learnings) {
+      list.appendChild(el(`<li>${esc(e.text)} <span class="review-when">${esc(fmtReviewDate(e.ts))}</span></li>`));
+    }
+    learnSec.appendChild(list);
+  }
+  reviewContent.appendChild(learnSec);
+}
+
+async function openReview() {
+  reviewModal.hidden = false;
+  document.body.classList.add("modal-open");
+  reviewContent.replaceChildren(el(`<p class="review-loading">Building your week…</p>`));
+  let r;
+  try {
+    r = await api("GET", "/review");
+  } catch (e) {
+    r = { error: e.message };
+  }
+  if (!reviewModal.hidden) renderReview(r);
+}
+
+function closeReview() {
+  reviewModal.hidden = true;
+  document.body.classList.remove("modal-open");
 }
 
 function renderMotd() {
@@ -629,6 +745,13 @@ learningForm.addEventListener("submit", async (e) => {
 motdPhrase.addEventListener("click", () => {
   motdDetail.hidden = !motdDetail.hidden;
   motdPanel.classList.toggle("open", !motdDetail.hidden);
+});
+
+reviewBtn.addEventListener("click", openReview);
+reviewClose.addEventListener("click", closeReview);
+reviewModal.querySelector(".review-backdrop").addEventListener("click", closeReview);
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !reviewModal.hidden) closeReview();
 });
 
 refresh();

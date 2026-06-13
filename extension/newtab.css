@@ -681,3 +681,149 @@ button.ghost:hover { background: #f2f2f2; color: #333; }
 }
 
 .motd-source:hover { text-decoration: underline; }
+
+/* ── Week in review ──────────────────────────────────────────────── */
+.review-btn {
+  font-size: 0.95rem;
+  padding: 0.5rem 1.1rem;
+  border-radius: 999px;
+  border-color: #d0c4f5;
+  background: #f3f0ff;
+  color: #6741d9;
+  margin: 0;
+}
+.review-btn:hover {
+  background: #e9e2ff;
+  border-color: #b9a6f0;
+}
+
+body.modal-open { overflow: hidden; }
+
+.review-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+}
+.review-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+}
+.review-dialog {
+  position: relative;
+  width: 100%;
+  max-width: 680px;
+  max-height: 86vh;
+  overflow-y: auto;
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+  padding: 2rem 2.25rem 2.25rem;
+  text-align: left;
+}
+.review-close {
+  position: absolute;
+  top: 0.9rem;
+  right: 0.9rem;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  margin: 0;
+  border-radius: 50%;
+  line-height: 1;
+  color: #888;
+}
+
+.review-head { margin-bottom: 1.5rem; }
+.review-head h2 {
+  margin: 0;
+  font-weight: 600;
+  font-size: 1.5rem;
+}
+.review-range {
+  margin: 0.2rem 0 0;
+  color: #888;
+  font-size: 0.95rem;
+}
+.review-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.25rem;
+  margin-top: 1rem;
+}
+.review-stat {
+  font-size: 0.9rem;
+  color: #666;
+}
+.review-stat b {
+  font-size: 1.15rem;
+  color: #222;
+  margin-right: 0.15rem;
+}
+
+.review-section {
+  border-top: 1px solid #eee;
+  padding-top: 1.1rem;
+  margin-top: 1.1rem;
+}
+.review-section h3 {
+  margin: 0 0 0.75rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #444;
+}
+
+.review-repo { margin-bottom: 0.9rem; }
+.review-repo-name {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #6741d9;
+  margin-bottom: 0.25rem;
+}
+.review-count {
+  display: inline-block;
+  background: #f3f0ff;
+  color: #6741d9;
+  border-radius: 999px;
+  padding: 0 0.45rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+.review-commits,
+.review-tasks,
+.review-learnings {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.review-commits li,
+.review-tasks li,
+.review-learnings li {
+  font-size: 0.92rem;
+  line-height: 1.5;
+  padding: 0.15rem 0;
+  color: #333;
+}
+.review-commits li { padding-left: 0.5rem; }
+.review-hash {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.82rem;
+  color: #999;
+}
+.review-when {
+  color: #aaa;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+.review-empty,
+.review-loading,
+.review-error {
+  color: #999;
+  font-size: 0.9rem;
+  margin: 0;
+}
+.review-error { color: #c0392b; }

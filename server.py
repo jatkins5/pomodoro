@@ -17,6 +17,7 @@ Endpoints:
   GET  /learnings[?today=1] -> list learnings (or today's summary)
   POST /learnings           -> body {text}
   GET  /motd                -> today's message of the day (or {} if none)
+  GET  /review              -> week-in-review report JSON (last Sun-Sat week)
 
 Binds to 127.0.0.1 only. Port defaults to 17234, override with POMODORO_PORT.
 CORS is open (*) — safe because we only listen on the loopback interface.
@@ -35,12 +36,12 @@ PORT = int(os.environ.get("POMODORO_PORT", "17234"))
 HOST = "127.0.0.1"
 
 
-def run_cli(*args: str, stdin: str | None = None) -> dict:
+def run_cli(*args: str, stdin: str | None = None, timeout: float = 10) -> dict:
     proc = subprocess.run(
         [str(CLI), *args],
         capture_output=True,
         text=True,
-        timeout=10,
+        timeout=timeout,
         input=stdin if stdin is not None else "",
     )
     if proc.returncode != 0:
@@ -98,6 +99,10 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path == "/motd":
             self._send(200, run_cli("motd", "current", "--json"))
+            return
+        if self.path == "/review" or self.path.startswith("/review?"):
+            # Scans git repos across the filesystem — give it room beyond the default.
+            self._send(200, run_cli("review", "--json", timeout=60))
             return
         self._send(404, {"error": "not found"})
 

@@ -10,6 +10,10 @@ Subcommands:
   status --json
   status --i3blocks   Three-line output for i3blocks.
   analyze [--today|--week|--all]   Summarize the log.
+  review [--json] [--start D] [--end D]
+                                   Week-in-review: commits, completed tasks,
+                                   learnings, and focus pomodoros for a week.
+                                   Defaults to the last completed Sun-Sat week.
   notifications [--since-id N]     Show muted notification backlog in rofi.
   pause-reason [--duration N]      Prompt for a reason for the last pause; logged.
   tasks list [--include-completed] [--tag NAME]
@@ -83,6 +87,14 @@ DEFAULTS = {
     "learning_nudge_hour": 21,
     "motd_model": "anthropic/claude-sonnet-4.6",
     "motd_base_url": "https://openrouter.ai/api/v1",
+    "review_root": str(Path.home()),
+    "review_scan_depth": 4,
+    "review_excludes": [],
+    "review_author_emails": [
+        "jeremy_atkins@brown.edu",
+        "johfst@gmail.com",
+        "jeremy@trylido.com",
+    ],
     "colors": {
         "focus": "#FF6B6B",
         "short_break": "#51CF66",
@@ -571,6 +583,189 @@ def cmd_analyze(args: list[str]) -> None:
         f"{'total':<12} {totals['focus']:>6} {totals['short_break']:>6} {totals['long_break']:>6} "
         f"{totals['pauses']:>7} {totals['skips']:>5} {totals['stops']:>5} {totals['starts']:>7}"
     )
+
+
+def default_week_range() -> tuple[str, str]:
+    """The most recently completed Sunday->Saturday week, as ISO date strings.
+
+    A Sun-Sat week counts as complete once its Saturday has passed. Run on a
+    Sunday this is the week that just ended; run on a Saturday it is the
+    week before (the current one is not done yet).
+    """
+    today = date.today()
+    # weekday(): Mon=0 .. Sat=5 .. Sun=6. Days back to the last *finished* Saturday.
+    back = (today.weekday() - 5) % 7 or 7
+    end = today - timedelta(days=back)
+    start = end - timedelta(days=6)
+    return start.isoformat(), end.isoformat()
+
+
+def _events_in_range(start: str, end: str):
+    """Yield log events whose date (ts[:10]) falls within [start, end] inclusive."""
+    if not LOG_PATH.exists():
+        return
+    with LOG_PATH.open() as f:
+        for line in f:
+            line = line.strip()
+            if not line or not line.startswith("{"):
+                continue
+            try:
+                e = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if start <= e.get("ts", "")[:10] <= end:
+                yield e
+
+
+_REVIEW_PRUNE = {
+    "node_modules", ".cache", ".cargo", ".rustup", ".npm", ".venv", "venv",
+    "__pycache__", ".local", ".mozilla", "snap", "Calibre Library",
+}
+
+
+def find_git_repos(root: Path, excludes: list[str], max_depth: int) -> list[Path]:
+    """Walk ``root`` and return git working-tree roots, not descending into one
+    once found. Hidden and heavy directories are pruned to keep the scan quick."""
+    root = root.expanduser()
+    repos: list[Path] = []
+    root_depth = len(root.parts)
+    for dirpath, dirnames, _ in os.walk(root):
+        p = Path(dirpath)
+        if len(p.parts) - root_depth >= max_depth:
+            dirnames[:] = []
+            continue
+        if ".git" in dirnames:
+            repos.append(p)
+            dirnames[:] = []  # a repo's subdirectories are part of that repo
+            continue
+        dirnames[:] = [
+            d for d in dirnames
+            if d not in _REVIEW_PRUNE
+            and not d.startswith(".")
+            and not any(ex in str(p / d) for ex in excludes)
+        ]
+    return repos
+
+
+def repo_commits(repo: Path, emails: list[str], start: str, end: str) -> list[dict]:
+    """Commits in ``repo`` across all branches within [start, end] (inclusive),
+    authored by one of ``emails`` (or anyone if ``emails`` is empty)."""
+    sep = "\x1f"
+    fmt = sep.join(["%h", "%aI", "%aE", "%s"])
+    args = [
+        "git", "-C", str(repo), "log", "--all", "--no-merges",
+        f"--since={start} 00:00:00", f"--until={end} 23:59:59",
+        f"--pretty=format:{fmt}",
+    ]
+    for em in emails:
+        args.append(f"--author={em}")
+    try:
+        proc = subprocess.run(args, capture_output=True, text=True, timeout=20)
+    except (subprocess.TimeoutExpired, OSError):
+        return []
+    if proc.returncode != 0:
+        return []
+    wanted = {em.lower() for em in emails}
+    out: list[dict] = []
+    seen: set[str] = set()
+    for line in proc.stdout.splitlines():
+        parts = line.split(sep)
+        if len(parts) != 4:
+            continue
+        h, aiso, aemail, subject = parts
+        if h in seen:
+            continue
+        if aiso[:10] < start or aiso[:10] > end:
+            continue
+        if wanted and aemail.lower() not in wanted:
+            continue
+        seen.add(h)
+        out.append({"hash": h, "date": aiso, "email": aemail, "subject": subject})
+    return out
+
+
+def build_review(cfg: dict, start: str, end: str) -> dict:
+    by_day: dict[str, int] = {}
+    pomodoros = 0
+    for e in _events_in_range(start, end):
+        if e.get("event") == "phase_end" and e.get("phase") == "focus":
+            pomodoros += 1
+            d = e["ts"][:10]
+            by_day[d] = by_day.get(d, 0) + 1
+
+    tasks_done = [
+        {"title": t.get("title", ""), "tags": t.get("tags") or [], "completed_at": ca}
+        for t in load_tasks()
+        if (ca := t.get("completed_at")) and start <= ca[:10] <= end
+    ]
+    tasks_done.sort(key=lambda x: x["completed_at"])
+
+    learns = [
+        {"text": e.get("text", ""), "ts": e.get("ts", "")}
+        for e in load_learnings()
+        if start <= e.get("ts", "")[:10] <= end
+    ]
+
+    emails = [e for e in (cfg.get("review_author_emails") or []) if isinstance(e, str)]
+    root = Path(cfg.get("review_root") or Path.home())
+    excludes = [x for x in (cfg.get("review_excludes") or []) if isinstance(x, str)]
+    depth = int(cfg.get("review_scan_depth", 4))
+    groups: list[dict] = []
+    total_commits = 0
+    for repo in find_git_repos(root, excludes, depth):
+        cs = repo_commits(repo, emails, start, end)
+        if not cs:
+            continue
+        total_commits += len(cs)
+        try:
+            name = str(repo.relative_to(Path.home()))
+        except ValueError:
+            name = str(repo)
+        groups.append({"repo": name, "path": str(repo), "count": len(cs), "commits": cs})
+    groups.sort(key=lambda g: (-g["count"], g["repo"]))
+
+    return {
+        "start": start,
+        "end": end,
+        "pomodoros": {"total": pomodoros, "by_day": by_day},
+        "tasks": tasks_done,
+        "learnings": learns,
+        "commits": {"total": total_commits, "repos": groups},
+    }
+
+
+def cmd_review(cfg: dict, args: list[str]) -> None:
+    start, end = default_week_range()
+    if "--start" in args:
+        try:
+            start = date.fromisoformat(args[args.index("--start") + 1]).isoformat()
+        except (ValueError, IndexError):
+            print(json.dumps({"error": "--start needs a YYYY-MM-DD date"}), file=sys.stderr)
+            sys.exit(1)
+    if "--end" in args:
+        try:
+            end = date.fromisoformat(args[args.index("--end") + 1]).isoformat()
+        except (ValueError, IndexError):
+            print(json.dumps({"error": "--end needs a YYYY-MM-DD date"}), file=sys.stderr)
+            sys.exit(1)
+    report = build_review(cfg, start, end)
+    if "--json" in args:
+        print(json.dumps(report))
+        return
+    print(f"Week in review: {report['start']} to {report['end']}\n")
+    print(f"Pomodoros completed: {report['pomodoros']['total']}")
+    print(f"Tasks completed: {len(report['tasks'])}")
+    for t in report["tasks"]:
+        tags = " " + " ".join(f"#{x}" for x in t["tags"]) if t["tags"] else ""
+        print(f"  - {t['title']}{tags}")
+    print(f"Learnings: {len(report['learnings'])}")
+    for e in report["learnings"]:
+        print(f"  - {e['text']}")
+    print(f"Commits: {report['commits']['total']}")
+    for g in report["commits"]["repos"]:
+        print(f"  {g['repo']} ({g['count']})")
+        for c in g["commits"]:
+            print(f"    {c['hash']} {c['subject']}")
 
 
 def load_tasks() -> list[dict]:
@@ -1264,7 +1459,7 @@ def cmd_notifications(args: list[str]) -> None:
         _dunstctl("history-pop", str(items[idx]["id"]))
 
 
-USAGE = "usage: pomodoro {toggle|stop|skip|reset|status [--json|--i3blocks]|analyze [--today|--week|--all]|notifications [--since-id N]|pause-reason [--duration N]|tasks {list|add|update|complete|uncomplete|delete} ...|set-task|learning {add|list|today|nudge}|motd {add|sources|remove|build|current}}"
+USAGE = "usage: pomodoro {toggle|stop|skip|reset|status [--json|--i3blocks]|analyze [--today|--week|--all]|review [--json] [--start D] [--end D]|notifications [--since-id N]|pause-reason [--duration N]|tasks {list|add|update|complete|uncomplete|delete} ...|set-task|learning {add|list|today|nudge}|motd {add|sources|remove|build|current}}"
 
 
 def main() -> None:
@@ -1286,6 +1481,8 @@ def main() -> None:
         cmd_status(cfg, mode)
     elif cmd == "analyze":
         cmd_analyze(rest)
+    elif cmd == "review":
+        cmd_review(cfg, rest)
     elif cmd == "notifications":
         cmd_notifications(rest)
     elif cmd == "pause-reason":

@@ -8,6 +8,7 @@
 <body>
   <main>
     <div class="left-col">
+      <button id="review-btn" class="review-btn" type="button" hidden>📅 Week in review</button>
       <section id="motd" class="motd" hidden>
         <button id="motd-phrase" class="motd-phrase" type="button"></button>
         <div id="motd-detail" class="motd-detail" hidden>
@@ -72,6 +73,13 @@
       </div>
     </section>
   </main>
+  <div id="review-modal" class="review-modal" hidden>
+    <div class="review-backdrop"></div>
+    <div class="review-dialog" role="dialog" aria-modal="true" aria-labelledby="review-title">
+      <button id="review-close" class="review-close" type="button" aria-label="Close">✕</button>
+      <div id="review-content" class="review-content"></div>
+    </div>
+  </div>
   <script src="newtab.js"></script>
 </body>
 </html>
