@@ -168,7 +168,15 @@ function fmtDuration(secs) {
 
 function fmtReviewDate(iso) {
   if (!iso) return "";
-  const d = new Date(iso);
+  let d;
+  if (!iso.includes("T")) {
+    // Date-only string: build at local midnight so it isn't shifted a day by UTC parsing.
+    const [y, m, day] = iso.split("-").map(Number);
+    if (!y || !m || !day) return iso;
+    d = new Date(y, m - 1, day);
+  } else {
+    d = new Date(iso);
+  }
   if (isNaN(d.getTime())) return iso;
   return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
 }
