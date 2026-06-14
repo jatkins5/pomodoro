@@ -95,6 +95,7 @@ DEFAULTS = {
         "johfst@gmail.com",
         "jeremy@trylido.com",
     ],
+    "review_branches": ["main", "master", "staging"],
     "workclock_log": str(Path.home() / ".workclock.log"),
     "workclock_active": str(Path.home() / ".workclock.active"),
     "workclock_rate": 75,
@@ -650,13 +651,24 @@ def find_git_repos(root: Path, excludes: list[str], max_depth: int) -> list[Path
     return repos
 
 
-def repo_commits(repo: Path, emails: list[str], start: str, end: str) -> list[dict]:
-    """Commits in ``repo`` across all branches within [start, end] (inclusive),
-    authored by one of ``emails`` (or anyone if ``emails`` is empty)."""
+def repo_commits(repo: Path, emails: list[str], branches: list[str], start: str, end: str) -> list[dict]:
+    """Commits in ``repo`` reachable from ``branches`` (those that exist) within
+    [start, end] inclusive, authored by one of ``emails`` (or anyone if empty)."""
+    try:
+        found = subprocess.run(
+            ["git", "-C", str(repo), "branch", "--list",
+             "--format=%(refname:short)", *branches],
+            capture_output=True, text=True, timeout=10,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return []
+    refs = [b.strip() for b in found.stdout.splitlines() if b.strip()]
+    if not refs:
+        return []
     sep = "\x1f"
     fmt = sep.join(["%h", "%aI", "%aE", "%s"])
     args = [
-        "git", "-C", str(repo), "log", "--all", "--no-merges",
+        "git", "-C", str(repo), "log", *refs, "--no-merges",
         f"--since={start} 00:00:00", f"--until={end} 23:59:59",
         f"--pretty=format:{fmt}",
     ]
@@ -762,13 +774,14 @@ def build_review(cfg: dict, start: str, end: str) -> dict:
     ]
 
     emails = [e for e in (cfg.get("review_author_emails") or []) if isinstance(e, str)]
+    branches = [b for b in (cfg.get("review_branches") or []) if isinstance(b, str)]
     root = Path(cfg.get("review_root") or Path.home())
     excludes = [x for x in (cfg.get("review_excludes") or []) if isinstance(x, str)]
     depth = int(cfg.get("review_scan_depth", 4))
     groups: list[dict] = []
     total_commits = 0
     for repo in find_git_repos(root, excludes, depth):
-        cs = repo_commits(repo, emails, start, end)
+        cs = repo_commits(repo, emails, branches, start, end)
         if not cs:
             continue
         total_commits += len(cs)
