@@ -94,6 +94,7 @@ DEFAULTS = {
         "jeremy_atkins@brown.edu",
         "johfst@gmail.com",
         "jeremy@trylido.com",
+        "56650470+jatkins5@users.noreply.github.com",
     ],
     "review_branches": ["main", "master", "staging"],
     "workclock_log": str(Path.home() / ".workclock.log"),
@@ -652,17 +653,22 @@ def find_git_repos(root: Path, excludes: list[str], max_depth: int) -> list[Path
 
 
 def repo_commits(repo: Path, emails: list[str], branches: list[str], start: str, end: str) -> list[dict]:
-    """Commits in ``repo`` reachable from ``branches`` (those that exist) within
-    [start, end] inclusive, authored by one of ``emails`` (or anyone if empty)."""
+    """Commits in ``repo`` reachable from ``branches`` within [start, end]
+    inclusive, authored by one of ``emails`` (or anyone if empty). Matches both
+    local branches and remote-tracking ones (e.g. ``staging`` and
+    ``origin/staging``) so merged work shows even when the local ref is stale."""
+    wanted_branches = set(branches)
     try:
         found = subprocess.run(
-            ["git", "-C", str(repo), "branch", "--list",
-             "--format=%(refname:short)", *branches],
+            ["git", "-C", str(repo), "for-each-ref", "--format=%(refname)",
+             "refs/heads", "refs/remotes"],
             capture_output=True, text=True, timeout=10,
         )
     except (subprocess.TimeoutExpired, OSError):
         return []
-    refs = [b.strip() for b in found.stdout.splitlines() if b.strip()]
+    # Keep refs whose final path component is a configured branch name.
+    refs = [r.strip() for r in found.stdout.splitlines()
+            if r.strip().rsplit("/", 1)[-1] in wanted_branches]
     if not refs:
         return []
     sep = "\x1f"
