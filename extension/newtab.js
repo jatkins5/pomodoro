@@ -20,6 +20,9 @@ const learningsPanel = document.getElementById("learnings");
 const learningForm = document.getElementById("learning-form");
 const learningInput = document.getElementById("learning-input");
 const learningList = document.getElementById("learning-list");
+const recallPanel = document.getElementById("recall");
+const recallText = document.getElementById("recall-text");
+const recallWhen = document.getElementById("recall-when");
 const motdPanel = document.getElementById("motd");
 const motdPhrase = document.getElementById("motd-phrase");
 const motdDetail = document.getElementById("motd-detail");
@@ -40,6 +43,7 @@ let idleTaskText = "";
 let activeTag = null;
 let editTaskId = null;
 let learningsToday = null;
+let recall = null;
 let motd = null;
 
 const TAG_RE = /(?:^|\s)#([A-Za-z0-9_-]+)/g;
@@ -138,6 +142,11 @@ async function refresh() {
     learningsToday = null;
   }
   try {
+    recall = await api("GET", "/learnings/recall");
+  } catch (e) {
+    recall = null;
+  }
+  try {
     motd = await api("GET", "/motd");
   } catch (e) {
     motd = null;
@@ -145,6 +154,7 @@ async function refresh() {
   render();
   renderTasks();
   renderLearnings();
+  renderRecall();
   renderMotd();
   renderReviewButton();
 }
@@ -334,6 +344,25 @@ function renderLearnings() {
   for (const e of entries) {
     learningList.appendChild(el(`<li class="learning">${esc(e.text)}</li>`));
   }
+}
+
+function recallWhenLabel(dateStr) {
+  const then = new Date(dateStr + "T00:00:00");
+  if (Number.isNaN(then.getTime())) return "";
+  const days = Math.round((Date.now() - then.getTime()) / 86400000);
+  if (days >= 14) return `${Math.floor(days / 7)} weeks ago`;
+  if (days >= 7) return "last week";
+  return then.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
+}
+
+function renderRecall() {
+  if (!recall || !recall.text) {
+    recallPanel.hidden = true;
+    return;
+  }
+  recallPanel.hidden = false;
+  recallText.textContent = recall.text;
+  recallWhen.textContent = recall.date ? recallWhenLabel(recall.date) : "";
 }
 
 function renderActiveTask(task) {

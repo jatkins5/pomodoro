@@ -28,6 +28,7 @@ Subcommands:
   learning list [--today]
   learning today                   JSON: {date, count, logged, prompt_hour, entries}.
   learning nudge                   Notify if nothing learned today (for the evening timer).
+  learning recall                  JSON: one past learning (from a previous week) to resurface today, or {}.
   motd add <url>                   Register a source document URL.
   motd sources                     List registered sources.
   motd remove <id>                 Drop a source and its snippets.
@@ -1115,6 +1116,29 @@ def learnings_on(date_str: str) -> list[dict]:
     return [e for e in load_learnings() if e.get("ts", "").startswith(date_str)]
 
 
+def recall_learning(today: date | None = None) -> dict:
+    """Pick one past learning to resurface today.
+
+    Eligible entries are those logged before the start of the current
+    Sun-Sat week (i.e. from a previous week, not this one). The choice is
+    deterministic per day so it stays put while a tab is open and rotates
+    the next morning, the same trick `motd current` uses.
+    """
+    today = today or date.today()
+    # Start (Sunday) of the current week. weekday(): Mon=0 .. Sun=6.
+    week_start = today - timedelta(days=(today.weekday() + 1) % 7)
+    cutoff = week_start.isoformat()
+    eligible = [
+        e for e in load_learnings()
+        if (e.get("ts", "")[:10]) and e["ts"][:10] < cutoff
+    ]
+    if not eligible:
+        return {}
+    idx = int(hashlib.sha1(today.isoformat().encode()).hexdigest(), 16) % len(eligible)
+    e = eligible[idx]
+    return {"id": e.get("id"), "text": e.get("text", ""), "ts": e.get("ts", ""), "date": e["ts"][:10]}
+
+
 def cmd_learning(cfg: dict, args: list[str]) -> None:
     if not args:
         print("usage: pomodoro learning {add|list|today|nudge}", file=sys.stderr)
@@ -1152,6 +1176,9 @@ def cmd_learning(cfg: dict, args: list[str]) -> None:
         if learnings_on(today):
             return
         notify(cfg, "What did you learn today?", "Jot down one thing before the day ends.")
+        return
+    if sub == "recall":
+        print(json.dumps(recall_learning()))
         return
     print(f"unknown learning subcommand: {sub}", file=sys.stderr)
     sys.exit(1)

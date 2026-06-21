@@ -15,6 +15,7 @@ Endpoints:
   POST /tasks/<id>/uncomplete
   POST /tasks/<id>/delete
   GET  /learnings[?today=1] -> list learnings (or today's summary)
+  GET  /learnings/recall    -> one past learning to resurface today (or {})
   POST /learnings           -> body {text}
   GET  /motd                -> today's message of the day (or {} if none)
   GET  /review[?start=&end=] -> week-in-review report JSON (last Sun-Sat week)
@@ -91,6 +92,9 @@ class Handler(BaseHTTPRequestHandler):
             if "all=1" in self.path or "all=true" in self.path:
                 args.append("--all")
             self._send(200, run_cli(*args))
+            return
+        if self.path == "/learnings/recall":
+            self._send(200, run_cli("learning", "recall"))
             return
         if self.path == "/learnings" or self.path.startswith("/learnings?"):
             if "today=1" in self.path or "today=true" in self.path:
