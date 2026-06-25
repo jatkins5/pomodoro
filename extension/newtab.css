@@ -731,6 +731,20 @@ button.ghost:hover { background: #f2f2f2; color: #333; }
   background: #e9e2ff;
   border-color: #b9a6f0;
 }
+.reflect-btn {
+  margin-top: 0.5rem;
+  border-color: #b2e6d4;
+  background: #ebfbf4;
+  color: #0c8567;
+}
+.reflect-btn:hover {
+  background: #d9f5ea;
+  border-color: #8fd9bf;
+}
+.reflect-btn:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
 
 body.modal-open { overflow: hidden; }
 

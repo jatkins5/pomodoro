@@ -30,6 +30,7 @@ const motdContext = document.getElementById("motd-context");
 const motdWhy = document.getElementById("motd-why");
 const motdSource = document.getElementById("motd-source");
 const reviewBtn = document.getElementById("review-btn");
+const reflectBtn = document.getElementById("reflect-btn");
 const reviewModal = document.getElementById("review-modal");
 const reviewContent = document.getElementById("review-content");
 const reviewClose = document.getElementById("review-close");
@@ -166,6 +167,7 @@ function reviewVisible() {
 
 function renderReviewButton() {
   reviewBtn.hidden = !reviewVisible();
+  reflectBtn.hidden = !reviewVisible();
 }
 
 function fmtDuration(secs) {
@@ -308,6 +310,24 @@ async function openReview() {
 function closeReview() {
   reviewModal.hidden = true;
   document.body.classList.remove("modal-open");
+}
+
+// Asks the local server to open an interactive reflection in a terminal — there's
+// no in-page conversation, so just give quick feedback on the button itself.
+async function startReflection() {
+  const label = reflectBtn.textContent;
+  reflectBtn.disabled = true;
+  reflectBtn.textContent = "Opening…";
+  try {
+    await api("POST", "/reflect");
+    reflectBtn.textContent = "Opened in a terminal ✓";
+  } catch (e) {
+    reflectBtn.textContent = "Couldn't open — is the server running?";
+  }
+  setTimeout(() => {
+    reflectBtn.textContent = label;
+    reflectBtn.disabled = false;
+  }, 4000);
 }
 
 function renderMotd() {
@@ -817,6 +837,7 @@ motdPhrase.addEventListener("click", () => {
 });
 
 reviewBtn.addEventListener("click", openReview);
+reflectBtn.addEventListener("click", startReflection);
 reviewClose.addEventListener("click", closeReview);
 reviewModal.querySelector(".review-backdrop").addEventListener("click", closeReview);
 document.addEventListener("keydown", (e) => {

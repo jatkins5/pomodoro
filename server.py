@@ -19,6 +19,7 @@ Endpoints:
   POST /learnings           -> body {text}
   GET  /motd                -> today's message of the day (or {} if none)
   GET  /review[?start=&end=] -> week-in-review report JSON (last Sun-Sat week)
+  POST /reflect             -> open an interactive weekly reflection in a terminal
 
 Binds to 127.0.0.1 only. Port defaults to 17234, override with POMODORO_PORT.
 CORS is open (*) — safe because we only listen on the loopback interface.
@@ -59,6 +60,29 @@ def run_cli(*args: str, stdin: str | None = None, timeout: float = 10) -> dict:
         return json.loads(out)
     except json.JSONDecodeError:
         return {"raw": out}
+
+
+def spawn_reflect() -> bool:
+    """Open a weekly reflection in a fresh terminal on the i3 desktop.
+
+    The server is a user systemd service whose environment already carries
+    DISPLAY/XAUTHORITY, so it can spawn a GUI terminal; we backfill DISPLAY just
+    in case. Detached (start_new_session) so it outlives the request handler.
+    """
+    env = dict(os.environ)
+    env.setdefault("DISPLAY", ":0")
+    try:
+        subprocess.Popen(
+            ["i3-sensible-terminal", "-e", str(CLI), "reflect"],
+            env=env,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        return True
+    except OSError:
+        return False
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -141,6 +165,10 @@ class Handler(BaseHTTPRequestHandler):
             body = self._read_body()
             result = run_cli("learning", "add", stdin=body)
             self._send(400 if "error" in result else 200, result)
+            return
+        if self.path == "/reflect":
+            ok = spawn_reflect()
+            self._send(200 if ok else 500, {"ok": ok})
             return
         m = re.fullmatch(r"/tasks/(\d+)/(update|complete|uncomplete|delete)", self.path)
         if m:

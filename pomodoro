@@ -14,6 +14,11 @@ Subcommands:
                                    Week-in-review: commits, completed tasks,
                                    learnings, and focus pomodoros for a week.
                                    Defaults to the last completed Sun-Sat week.
+  reflect [--start D] [--end D]    Open an interactive weekly reflection in Claude
+                                   Code: writes WEEK.md + TODOS.md from the review,
+                                   then launches `claude` to talk through the week
+                                   and curate the todo list (todos are the goals).
+            [--prepare]            Only write the files; don't launch (for the server).
   notifications [--since-id N]     Show muted notification backlog in rofi.
   pause-reason [--duration N]      Prompt for a reason for the last pause; logged.
   tasks list [--include-completed] [--tag NAME]
@@ -76,6 +81,7 @@ MOTD_SOURCES_PATH = STATE_DIR / "motd_sources.json"
 MOTD_SNIPPETS_PATH = STATE_DIR / "motd_snippets.json"
 MUTE_MARKER = STATE_DIR / "mute_since_id"
 MEDIA_MARKER = STATE_DIR / "paused_media"
+REFLECT_DIR = STATE_DIR / "reflections"
 
 DEFAULTS = {
     "focus_minutes": 25,
@@ -88,6 +94,8 @@ DEFAULTS = {
     "learning_nudge_hour": 21,
     "motd_model": "anthropic/claude-sonnet-4.6",
     "motd_base_url": "https://openrouter.ai/api/v1",
+    "reflect_model": "claude-opus-4-8",
+    "reflect_effort": "low",
     "review_root": str(Path.home()),
     "review_scan_depth": 4,
     "review_excludes": [],
@@ -1563,7 +1571,194 @@ def cmd_notifications(args: list[str]) -> None:
         _dunstctl("history-pop", str(items[idx]["id"]))
 
 
-USAGE = "usage: pomodoro {toggle|stop|skip|reset|status [--json|--i3blocks]|analyze [--today|--week|--all]|review [--json] [--start D] [--end D]|notifications [--since-id N]|pause-reason [--duration N]|tasks {list|add|update|complete|uncomplete|delete} ...|set-task|learning {add|list|today|nudge}|motd {add|sources|remove|build|current}}"
+USAGE = "usage: pomodoro {toggle|stop|skip|reset|status [--json|--i3blocks]|analyze [--today|--week|--all]|review [--json] [--start D] [--end D]|reflect [--start D] [--end D] [--prepare]|notifications [--since-id N]|pause-reason [--duration N]|tasks {list|add|update|complete|uncomplete|delete} ...|set-task|learning {add|list|today|nudge}|motd {add|sources|remove|build|current}}"
+
+
+REFLECT_SYSTEM = (
+    "You are a thoughtful weekly-reflection partner for Jeremy. Set aside any "
+    "software-engineering framing for this session — it is a calm one-on-one "
+    "retrospective, not a coding task. Two files sit in the working directory: "
+    "WEEK.md (the data for the week just finished) and TODOS.md (his current todo "
+    "list, with what was added and completed this week and what's overdue). Read "
+    "both before you say anything. The `pomodoro` command is on your PATH — just "
+    "run it by name from where you are; you don't need to locate any project "
+    "directory or read its source.\n\n"
+    "His todos ARE his goals — there's no separate notion of a goal. So reviewing "
+    "last week means looking at the todo list: what he set out to do, what he "
+    "actually finished and when, what he added mid-week, and what's gone stale or "
+    "overdue. Ground the conversation in that rather than guessing.\n\n"
+    "Explore the week together — successes worth savoring and difficulties worth "
+    "understanding — with genuine curiosity, one thread at a time. Be warm and "
+    "direct: don't flatter, don't lecture, and don't read the data back at him like "
+    "a report. Ask, listen, reflect.\n\n"
+    "Close by helping him shape the coming week, which means curating the todo list "
+    "with him — add what he commits to, and surface stale or overdue items to drop, "
+    "defer, or recommit to. Edit the list directly as you converge; don't just "
+    "suggest. Run these yourself:\n"
+    "  - Current open list:   pomodoro tasks list\n"
+    "  - Full history:        pomodoro tasks list --all   (includes completed, with "
+    "created_at / completed_at / due_at — use it to see what was added or finished and when)\n"
+    "  - Add a todo:          pomodoro tasks add <<<'{\"title\": \"<text>\", "
+    "\"due_at\": \"YYYY-MM-DD\"}'   (#tags in the title are parsed out automatically; due_at optional)\n"
+    "  - Update / complete / delete:  pomodoro tasks {update|complete|delete} <id>\n"
+    "Add only items he has actually agreed to. Lean toward giving each new todo a "
+    "realistic due_at — a concrete deadline is what actually gets things finished — "
+    "but use your judgement: some items are genuinely open-ended, and a deadline he "
+    "won't honor is worse than none. When something's overdue, that's a cue to "
+    "renegotiate the date with him, not to silently let it slide."
+)
+
+
+def _reflect_week_md(data: dict) -> str:
+    work = data.get("work") or {}
+    pom = data.get("pomodoros") or {}
+    commits = data.get("commits") or {}
+    tasks = data.get("tasks") or []
+    learns = data.get("learnings") or []
+    out = [f"# Week of {data.get('start')} – {data.get('end')}", ""]
+    out.append("## At a glance")
+    out.append(f"- **{work.get('hours', 0):.1f}h** worked — **${work.get('earnings', 0):.0f}** earned")
+    out.append(f"- **{pom.get('total', 0)}** focus pomodoros")
+    out.append(f"- **{commits.get('total', 0)}** commits")
+    out.append(f"- **{len(tasks)}** tasks completed")
+    out.append(f"- **{len(learns)}** learnings logged")
+    out.append("")
+
+    wbd = work.get("by_day") or {}
+    if wbd:
+        out.append("## Hours by day")
+        for day in sorted(wbd):
+            out.append(f"- {day}: {wbd[day] / 3600:.1f}h")
+        out.append("")
+
+    out.append("## Tasks completed")
+    if tasks:
+        for t in tasks:
+            tags = " ".join(f"#{x}" for x in (t.get("tags") or []))
+            suffix = f" ({t.get('completed_at', '')[:10]})"
+            out.append(f"- {t.get('title', '')}{(' ' + tags) if tags else ''}{suffix}")
+    else:
+        out.append("- (none)")
+    out.append("")
+
+    out.append("## Commits")
+    repos = commits.get("repos") or []
+    if repos:
+        for g in repos:
+            out.append(f"### {g.get('repo')} ({g.get('count')})")
+            for c in g.get("commits", []):
+                out.append(f"- {c.get('date', '')[:10]} {c.get('subject', '').strip()}")
+            out.append("")
+    else:
+        out.append("- (none)")
+        out.append("")
+
+    out.append("## Learnings")
+    if learns:
+        for e in learns:
+            out.append(f"- {e.get('ts', '')[:10]}: {e.get('text', '')}")
+    else:
+        out.append("- (none)")
+    out.append("")
+    return "\n".join(out)
+
+
+def _reflect_todos_md(start: str, end: str) -> str:
+    """The whole todo picture: what's open now (with age / due / overdue / added-
+    this-week markers) and the week's add/complete counts. Todos are the goals."""
+    tasks = load_tasks()
+    today = date.today()
+    today_s = today.isoformat()
+    open_tasks = [t for t in tasks if not t.get("completed_at")]
+    added = [t for t in tasks if start <= (t.get("created_at") or "")[:10] <= end]
+    completed = [t for t in tasks if (ca := t.get("completed_at")) and start <= ca[:10] <= end]
+
+    def age(created: str) -> str:
+        try:
+            n = (today - date.fromisoformat((created or "")[:10])).days
+        except ValueError:
+            return ""
+        return "today" if n == 0 else ("1d ago" if n == 1 else f"{n}d ago")
+
+    def sort_key(t: dict):
+        due = (t.get("due_at") or "")[:10]
+        overdue = bool(due) and due < today_s
+        return (0 if overdue else 1, due or "9999-99-99", (t.get("created_at") or ""))
+
+    out = ["# Current todo list", ""]
+    out.append(f"_This week: {len(added)} added, {len(completed)} completed._")
+    out.append("")
+    out.append(f"## Open now ({len(open_tasks)})")
+    if not open_tasks:
+        out.append("- (nothing open)")
+    for t in sorted(open_tasks, key=sort_key):
+        title = t.get("title", "")
+        tags = " ".join(f"#{x}" for x in (t.get("tags") or []))
+        if tags:
+            title = f"{title} {tags}"
+        bits = []
+        created = (t.get("created_at") or "")[:10]
+        if created:
+            prefix = "added this week, " if start <= created <= end else ""
+            bits.append(f"{prefix}{age(created)}")
+        due = (t.get("due_at") or "")[:10]
+        if due and due < today_s:
+            bits.append(f"⚠️ overdue (due {due})")
+        elif due:
+            bits.append(f"due {due}")
+        if t.get("long_term"):
+            bits.append("long-term")
+        meta = f"  ({'; '.join(bits)})" if bits else ""
+        out.append(f"- [ ] {title} (id {t.get('id')}){meta}")
+    out.append("")
+    return "\n".join(out)
+
+
+def cmd_reflect(cfg: dict, args: list[str]) -> None:
+    start, end = default_week_range()
+    if "--start" in args:
+        start = args[args.index("--start") + 1]
+    if "--end" in args:
+        end = args[args.index("--end") + 1]
+
+    print("Building your week…", file=sys.stderr)
+    REFLECT_DIR.mkdir(parents=True, exist_ok=True)
+    data = build_review(cfg, start, end)
+    (REFLECT_DIR / "WEEK.md").write_text(_reflect_week_md(data))
+    (REFLECT_DIR / "TODOS.md").write_text(_reflect_todos_md(start, end))
+
+    # A self-contained project settings file lets the agent manage the todo list
+    # without prompting for each command, while still confirming anything else.
+    claude_dir = REFLECT_DIR / ".claude"
+    claude_dir.mkdir(parents=True, exist_ok=True)
+    (claude_dir / "settings.json").write_text(
+        json.dumps({"permissions": {"allow": ["Bash(pomodoro tasks:*)"]}}, indent=2) + "\n"
+    )
+
+    if "--prepare" in args:
+        print(json.dumps({"dir": str(REFLECT_DIR), "start": start, "end": end}))
+        return
+
+    # `pomodoro` isn't on PATH by default — make sure the agent (and its bash
+    # subcommands) can find it by name, so `pomodoro tasks …` just works and
+    # matches the allowlist instead of needing an absolute path.
+    cli_dir = str(Path(__file__).resolve().parent)
+    os.environ["PATH"] = cli_dir + os.pathsep + os.environ.get("PATH", "")
+
+    argv = [
+        "claude",
+        "--model", str(cfg.get("reflect_model", "claude-opus-4-8")),
+        "--effort", str(cfg.get("reflect_effort", "low")),
+        "--append-system-prompt", REFLECT_SYSTEM,
+        "Let's do my weekly reflection. Read WEEK.md and TODOS.md in this "
+        "directory first, then let's talk it through.",
+    ]
+    os.chdir(REFLECT_DIR)
+    try:
+        os.execvp("claude", argv)
+    except FileNotFoundError:
+        print("reflect needs the `claude` CLI on your PATH", file=sys.stderr)
+        sys.exit(1)
 
 
 def main() -> None:
@@ -1587,6 +1782,8 @@ def main() -> None:
         cmd_analyze(rest)
     elif cmd == "review":
         cmd_review(cfg, rest)
+    elif cmd == "reflect":
+        cmd_reflect(cfg, rest)
     elif cmd == "notifications":
         cmd_notifications(rest)
     elif cmd == "pause-reason":
