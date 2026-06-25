@@ -19,6 +19,11 @@ Subcommands:
                                    then launches `claude` to talk through the week
                                    and curate the todo list (todos are the goals).
             [--prepare]            Only write the files; don't launch (for the server).
+  chat [--prepare]                 Open an on-demand planning check-in in Claude
+                                   Code: writes TODOS.md from your current list,
+                                   then launches `claude` to figure out what to
+                                   focus on and curate the todos. Lighter than
+                                   reflect — no week retrospective.
   notifications [--since-id N]     Show muted notification backlog in rofi.
   pause-reason [--duration N]      Prompt for a reason for the last pause; logged.
   tasks list [--include-completed] [--tag NAME]
@@ -1571,7 +1576,7 @@ def cmd_notifications(args: list[str]) -> None:
         _dunstctl("history-pop", str(items[idx]["id"]))
 
 
-USAGE = "usage: pomodoro {toggle|stop|skip|reset|status [--json|--i3blocks]|analyze [--today|--week|--all]|review [--json] [--start D] [--end D]|reflect [--start D] [--end D] [--prepare]|notifications [--since-id N]|pause-reason [--duration N]|tasks {list|add|update|complete|uncomplete|delete} ...|set-task|learning {add|list|today|nudge}|motd {add|sources|remove|build|current}}"
+USAGE = "usage: pomodoro {toggle|stop|skip|reset|status [--json|--i3blocks]|analyze [--today|--week|--all]|review [--json] [--start D] [--end D]|reflect [--start D] [--end D] [--prepare]|chat [--prepare]|notifications [--since-id N]|pause-reason [--duration N]|tasks {list|add|update|complete|uncomplete|delete} ...|set-task|learning {add|list|today|nudge}|motd {add|sources|remove|build|current}}"
 
 
 REFLECT_SYSTEM = (
@@ -1624,6 +1629,38 @@ REFLECT_SYSTEM = (
     "likely to make this slip before next Sunday, and adjust the scope or the date "
     "so it's something he'll actually finish — better a smaller goal that lands "
     "than an ambitious one that rolls over again."
+)
+
+
+CHAT_SYSTEM = (
+    "You are Jeremy's planning partner for a quick, on-demand check-in — not a "
+    "coding task, and not the full weekly retrospective. One file sits in the "
+    "working directory: TODOS.md (his current todo list, with age / due / overdue "
+    "markers and what was added this week). Read it before you say anything. The "
+    "`pomodoro` command is on your PATH — just run it by name; you don't need to "
+    "locate any project directory or read its source.\n\n"
+    "His todos ARE his goals — there's no separate notion of a goal. Help him "
+    "decide what to actually do: what's most worth tackling now, what's overdue "
+    "and needs renegotiating, what's gone stale and should be dropped or deferred. "
+    "Start by getting your bearings on the list and asking what's on his mind, "
+    "rather than reading the todos back at him.\n\n"
+    "Be warm and direct: don't flatter, don't lecture. Explore one thread at a "
+    "time with genuine curiosity; ask, listen, and reflect back what you hear "
+    "before pushing further. Don't end every message with a question — ask when it "
+    "earns its place. When something he says is vague, help him put it into words "
+    "and offer a tentative framing he can correct, rather than naming it for him.\n\n"
+    "As you and he converge on changes, edit the todo list directly — don't just "
+    "suggest. Run these yourself:\n"
+    "  - Current open list:   pomodoro tasks list\n"
+    "  - Full history:        pomodoro tasks list --all   (includes completed, with "
+    "created_at / completed_at / due_at)\n"
+    "  - Add a todo:          pomodoro tasks add <<<'{\"title\": \"<text>\", "
+    "\"due_at\": \"YYYY-MM-DD\"}'   (#tags in the title are parsed out automatically; due_at optional)\n"
+    "  - Update / complete / delete:  pomodoro tasks {update|complete|delete} <id>\n"
+    "Add only items he has actually agreed to. Lean toward a realistic due_at — a "
+    "concrete deadline is what gets things finished — but use judgement; a deadline "
+    "he won't honor is worse than none. When something's overdue, that's a cue to "
+    "renegotiate the date with him, not to silently let it slide."
 )
 
 
@@ -1732,6 +1769,40 @@ def _reflect_todos_md(start: str, end: str) -> str:
     return "\n".join(out)
 
 
+def _write_agent_settings() -> None:
+    # A self-contained project settings file lets the agent manage the todo list
+    # without prompting for each command, while still confirming anything else.
+    claude_dir = REFLECT_DIR / ".claude"
+    claude_dir.mkdir(parents=True, exist_ok=True)
+    (claude_dir / "settings.json").write_text(
+        json.dumps({"permissions": {"allow": ["Bash(pomodoro tasks:*)"]}}, indent=2) + "\n"
+    )
+
+
+def _exec_claude_agent(cfg: dict, system: str, prompt: str, what: str) -> None:
+    """Replace this process with `claude` running the reflection/chat agent in
+    REFLECT_DIR. Never returns on success."""
+    # `pomodoro` isn't on PATH by default — make sure the agent (and its bash
+    # subcommands) can find it by name, so `pomodoro tasks …` just works and
+    # matches the allowlist instead of needing an absolute path.
+    cli_dir = str(Path(__file__).resolve().parent)
+    os.environ["PATH"] = cli_dir + os.pathsep + os.environ.get("PATH", "")
+
+    argv = [
+        "claude",
+        "--model", str(cfg.get("reflect_model", "claude-opus-4-8")),
+        "--effort", str(cfg.get("reflect_effort", "low")),
+        "--append-system-prompt", system,
+        prompt,
+    ]
+    os.chdir(REFLECT_DIR)
+    try:
+        os.execvp("claude", argv)
+    except FileNotFoundError:
+        print(f"{what} needs the `claude` CLI on your PATH", file=sys.stderr)
+        sys.exit(1)
+
+
 def cmd_reflect(cfg: dict, args: list[str]) -> None:
     start, end = default_week_range()
     if "--start" in args:
@@ -1744,39 +1815,38 @@ def cmd_reflect(cfg: dict, args: list[str]) -> None:
     data = build_review(cfg, start, end)
     (REFLECT_DIR / "WEEK.md").write_text(_reflect_week_md(data))
     (REFLECT_DIR / "TODOS.md").write_text(_reflect_todos_md(start, end))
-
-    # A self-contained project settings file lets the agent manage the todo list
-    # without prompting for each command, while still confirming anything else.
-    claude_dir = REFLECT_DIR / ".claude"
-    claude_dir.mkdir(parents=True, exist_ok=True)
-    (claude_dir / "settings.json").write_text(
-        json.dumps({"permissions": {"allow": ["Bash(pomodoro tasks:*)"]}}, indent=2) + "\n"
-    )
+    _write_agent_settings()
 
     if "--prepare" in args:
         print(json.dumps({"dir": str(REFLECT_DIR), "start": start, "end": end}))
         return
 
-    # `pomodoro` isn't on PATH by default — make sure the agent (and its bash
-    # subcommands) can find it by name, so `pomodoro tasks …` just works and
-    # matches the allowlist instead of needing an absolute path.
-    cli_dir = str(Path(__file__).resolve().parent)
-    os.environ["PATH"] = cli_dir + os.pathsep + os.environ.get("PATH", "")
-
-    argv = [
-        "claude",
-        "--model", str(cfg.get("reflect_model", "claude-opus-4-8")),
-        "--effort", str(cfg.get("reflect_effort", "low")),
-        "--append-system-prompt", REFLECT_SYSTEM,
+    _exec_claude_agent(
+        cfg, REFLECT_SYSTEM,
         "Let's do my weekly reflection. Read WEEK.md and TODOS.md in this "
         "directory first, then let's talk it through.",
-    ]
-    os.chdir(REFLECT_DIR)
-    try:
-        os.execvp("claude", argv)
-    except FileNotFoundError:
-        print("reflect needs the `claude` CLI on your PATH", file=sys.stderr)
-        sys.exit(1)
+        "reflect",
+    )
+
+
+def cmd_chat(cfg: dict, args: list[str]) -> None:
+    # No retrospective — just ground the agent in the current todo list so it can
+    # help plan now. Reuse the week range only for the "added this week" markers.
+    start, end = default_week_range()
+    REFLECT_DIR.mkdir(parents=True, exist_ok=True)
+    (REFLECT_DIR / "TODOS.md").write_text(_reflect_todos_md(start, end))
+    _write_agent_settings()
+
+    if "--prepare" in args:
+        print(json.dumps({"dir": str(REFLECT_DIR)}))
+        return
+
+    _exec_claude_agent(
+        cfg, CHAT_SYSTEM,
+        "Let's do a quick check-in. Read TODOS.md in this directory first, "
+        "then let's figure out what's worth focusing on.",
+        "chat",
+    )
 
 
 def main() -> None:
@@ -1802,6 +1872,8 @@ def main() -> None:
         cmd_review(cfg, rest)
     elif cmd == "reflect":
         cmd_reflect(cfg, rest)
+    elif cmd == "chat":
+        cmd_chat(cfg, rest)
     elif cmd == "notifications":
         cmd_notifications(rest)
     elif cmd == "pause-reason":
