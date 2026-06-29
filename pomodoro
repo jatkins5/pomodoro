@@ -35,6 +35,8 @@ Subcommands:
   tasks delete <id>
   set-task                         Read JSON body from stdin: {task_id} | {task_text} | {clear: true}
   learning add                     Read JSON body from stdin: {text}. Append today's learning.
+  learning update <id>             Read JSON body from stdin: {text}. Replace a learning's text.
+  learning delete <id>             Remove a learning.
   learning list [--today]
   learning today                   JSON: {date, count, logged, prompt_hour, entries}.
   learning nudge                   Notify if nothing learned today (for the evening timer).
@@ -1125,6 +1127,32 @@ def append_learning(text: str) -> dict:
     return entry
 
 
+def save_learnings(entries: list[dict]) -> None:
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    with LEARNINGS_PATH.open("w") as f:
+        for e in entries:
+            f.write(json.dumps(e) + "\n")
+
+
+def update_learning(learning_id: int, text: str) -> dict | None:
+    entries = load_learnings()
+    for e in entries:
+        if e.get("id") == learning_id:
+            e["text"] = text
+            save_learnings(entries)
+            return e
+    return None
+
+
+def delete_learning(learning_id: int) -> dict | None:
+    entries = load_learnings()
+    target = next((e for e in entries if e.get("id") == learning_id), None)
+    if target is None:
+        return None
+    save_learnings([e for e in entries if e.get("id") != learning_id])
+    return target
+
+
 def learnings_on(date_str: str) -> list[dict]:
     return [e for e in load_learnings() if e.get("ts", "").startswith(date_str)]
 
@@ -1154,7 +1182,7 @@ def recall_learning(today: date | None = None) -> dict:
 
 def cmd_learning(cfg: dict, args: list[str]) -> None:
     if not args:
-        print("usage: pomodoro learning {add|list|today|nudge}", file=sys.stderr)
+        print("usage: pomodoro learning {add|update|delete|list|today|nudge}", file=sys.stderr)
         sys.exit(1)
     sub, rest = args[0], args[1:]
     if sub == "add":
@@ -1165,6 +1193,35 @@ def cmd_learning(cfg: dict, args: list[str]) -> None:
             sys.exit(1)
         entry = append_learning(text)
         log_event("learning_add", learning_id=entry["id"])
+        print(json.dumps(entry))
+        return
+    if sub in ("update", "delete"):
+        if not rest:
+            print(json.dumps({"error": "id required"}), file=sys.stderr)
+            sys.exit(1)
+        try:
+            lid = int(rest[0])
+        except ValueError:
+            print(json.dumps({"error": "id must be integer"}), file=sys.stderr)
+            sys.exit(1)
+        if sub == "update":
+            body = read_stdin_json()
+            text = str(body.get("text") or "").strip()
+            if not text:
+                print(json.dumps({"error": "text required"}), file=sys.stderr)
+                sys.exit(1)
+            entry = update_learning(lid, text)
+            if entry is None:
+                print(json.dumps({"error": "not found"}), file=sys.stderr)
+                sys.exit(1)
+            log_event("learning_update", learning_id=lid)
+            print(json.dumps(entry))
+            return
+        entry = delete_learning(lid)
+        if entry is None:
+            print(json.dumps({"error": "not found"}), file=sys.stderr)
+            sys.exit(1)
+        log_event("learning_delete", learning_id=lid)
         print(json.dumps(entry))
         return
     if sub == "list":
@@ -1576,7 +1633,7 @@ def cmd_notifications(args: list[str]) -> None:
         _dunstctl("history-pop", str(items[idx]["id"]))
 
 
-USAGE = "usage: pomodoro {toggle|stop|skip|reset|status [--json|--i3blocks]|analyze [--today|--week|--all]|review [--json] [--start D] [--end D]|reflect [--start D] [--end D] [--prepare]|chat [--prepare]|notifications [--since-id N]|pause-reason [--duration N]|tasks {list|add|update|complete|uncomplete|delete} ...|set-task|learning {add|list|today|nudge}|motd {add|sources|remove|build|current}}"
+USAGE = "usage: pomodoro {toggle|stop|skip|reset|status [--json|--i3blocks]|analyze [--today|--week|--all]|review [--json] [--start D] [--end D]|reflect [--start D] [--end D] [--prepare]|chat [--prepare]|notifications [--since-id N]|pause-reason [--duration N]|tasks {list|add|update|complete|uncomplete|delete} ...|set-task|learning {add|update|delete|list|today|nudge}|motd {add|sources|remove|build|current}}"
 
 
 REFLECT_SYSTEM = (

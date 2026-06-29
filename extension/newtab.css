@@ -640,6 +640,9 @@ button.ghost:hover { background: #f2f2f2; color: #333; }
 .learning-list:empty { display: none; }
 
 .learning-list .learning {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
   font-size: 0.85rem;
   color: #555;
   padding: 0.3rem 0.1rem;
@@ -647,6 +650,43 @@ button.ghost:hover { background: #f2f2f2; color: #333; }
 }
 
 .learning-list .learning:first-child { border-top: none; }
+
+.learning-list .learning-text { flex: 1; min-width: 0; }
+
+.learning-actions {
+  flex-shrink: 0;
+  display: flex;
+  gap: 0.1rem;
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+
+.learning:hover .learning-actions { opacity: 1; }
+
+.learning-actions .mini {
+  background: none;
+  border: none;
+  padding: 0 0.3rem;
+  cursor: pointer;
+  color: #aaa;
+  font-size: 0.9rem;
+  line-height: 1.2;
+  border-radius: 4px;
+}
+.learning-actions .mini:hover { background: rgba(0,0,0,0.05); color: #555; }
+.learning-actions .mini.del:hover { background: #ffe3e3; color: #c92a2a; }
+
+.learning-edit {
+  flex: 1;
+  font: inherit;
+  font-size: 0.85rem;
+  color: #333;
+  padding: 0.2rem 0.3rem;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  resize: vertical;
+  box-sizing: border-box;
+}
 
 /* Escalated state — nothing logged yet and it's getting late */
 .learnings-panel.urgent {

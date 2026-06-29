@@ -362,8 +362,51 @@ function renderLearnings() {
   learningsPanel.classList.toggle("urgent", urgent);
   learningList.replaceChildren();
   for (const e of entries) {
-    learningList.appendChild(el(`<li class="learning">${esc(e.text)}</li>`));
+    learningList.appendChild(learningRow(e));
   }
+}
+
+function learningRow(e) {
+  const li = el(`<li class="learning"></li>`);
+  const text = el(`<span class="learning-text">${esc(e.text)}</span>`);
+  const actions = el(`<span class="learning-actions"></span>`);
+  const edit = el(`<button class="mini" title="Edit">✎</button>`);
+  const del = el(`<button class="mini del" title="Delete">×</button>`);
+  actions.append(edit, del);
+  li.append(text, actions);
+
+  edit.addEventListener("click", () => beginLearningEdit(li, e));
+  del.addEventListener("click", async () => {
+    if (!confirm("Delete this learning?")) return;
+    const result = await postAction(`/learnings/${e.id}/delete`);
+    if (result.error) { alert(`Error: ${result.error}`); return; }
+    refresh();
+  });
+  return li;
+}
+
+function beginLearningEdit(li, e) {
+  const input = el(`<textarea class="learning-edit" rows="1"></textarea>`);
+  input.value = e.text;
+  li.replaceChildren(input);
+  input.focus();
+  input.setSelectionRange(input.value.length, input.value.length);
+
+  let done = false;
+  const save = async () => {
+    if (done) return;
+    done = true;
+    const text = input.value.trim();
+    if (!text || text === e.text) { renderLearnings(); return; }
+    const result = await postAction(`/learnings/${e.id}/update`, { text });
+    if (result.error) { alert(`Error: ${result.error}`); }
+    refresh();
+  };
+  input.addEventListener("blur", save);
+  input.addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter" && !ev.shiftKey) { ev.preventDefault(); save(); }
+    else if (ev.key === "Escape") { ev.preventDefault(); done = true; renderLearnings(); }
+  });
 }
 
 function recallWhenLabel(dateStr) {

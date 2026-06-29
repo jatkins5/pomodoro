@@ -17,6 +17,8 @@ Endpoints:
   GET  /learnings[?today=1] -> list learnings (or today's summary)
   GET  /learnings/recall    -> one past learning to resurface today (or {})
   POST /learnings           -> body {text}
+  POST /learnings/<id>/update -> body {text}
+  POST /learnings/<id>/delete
   GET  /motd                -> today's message of the day (or {} if none)
   GET  /review[?start=&end=] -> week-in-review report JSON (last Sun-Sat week)
   POST /reflect             -> open an interactive weekly reflection in a terminal
@@ -175,6 +177,13 @@ class Handler(BaseHTTPRequestHandler):
             tid, op = m.group(1), m.group(2)
             body = self._read_body() if op == "update" else ""
             result = run_cli("tasks", op, tid, stdin=body)
+            self._send(404 if result.get("error") == "not found" else (400 if "error" in result else 200), result)
+            return
+        m = re.fullmatch(r"/learnings/(\d+)/(update|delete)", self.path)
+        if m:
+            lid, op = m.group(1), m.group(2)
+            body = self._read_body() if op == "update" else ""
+            result = run_cli("learning", op, lid, stdin=body)
             self._send(404 if result.get("error") == "not found" else (400 if "error" in result else 200), result)
             return
         self._send(404, {"error": "not found"})
