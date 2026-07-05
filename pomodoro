@@ -1845,8 +1845,30 @@ def _exec_claude_agent(cfg: dict, system: str, prompt: str, what: str) -> None:
     cli_dir = str(Path(__file__).resolve().parent)
     os.environ["PATH"] = cli_dir + os.pathsep + os.environ.get("PATH", "")
 
+    # Locate `claude` robustly. When launched from the systemd server the PATH is
+    # bare (/usr/bin etc.) and omits ~/.local/bin where claude usually installs,
+    # so execvp("claude") would FileNotFound and the terminal would flash closed.
+    # Resolve an absolute path, and put its dir on PATH so claude's own children
+    # (and any `claude` it re-invokes) resolve too.
+    claude = shutil.which("claude")
+    if not claude:
+        for cand in (
+            Path.home() / ".local/bin/claude",
+            Path.home() / "bin/claude",
+            Path("/usr/local/bin/claude"),
+        ):
+            if cand.exists():
+                claude = str(cand)
+                break
+    if not claude:
+        print(f"{what} needs the `claude` CLI installed (looked on PATH and in "
+              f"~/.local/bin) — see https://claude.com/product/claude-code",
+              file=sys.stderr)
+        sys.exit(1)
+    os.environ["PATH"] = str(Path(claude).resolve().parent) + os.pathsep + os.environ["PATH"]
+
     argv = [
-        "claude",
+        claude,
         "--model", str(cfg.get("reflect_model", "claude-opus-4-8")),
         "--effort", str(cfg.get("reflect_effort", "low")),
         "--append-system-prompt", system,
@@ -1854,9 +1876,9 @@ def _exec_claude_agent(cfg: dict, system: str, prompt: str, what: str) -> None:
     ]
     os.chdir(REFLECT_DIR)
     try:
-        os.execvp("claude", argv)
-    except FileNotFoundError:
-        print(f"{what} needs the `claude` CLI on your PATH", file=sys.stderr)
+        os.execv(claude, argv)
+    except OSError as e:
+        print(f"{what} couldn't launch claude ({claude}): {e}", file=sys.stderr)
         sys.exit(1)
 
 

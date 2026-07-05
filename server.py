@@ -70,9 +70,18 @@ def spawn_reflect() -> bool:
     The server is a user systemd service whose environment already carries
     DISPLAY/XAUTHORITY, so it can spawn a GUI terminal; we backfill DISPLAY just
     in case. Detached (start_new_session) so it outlives the request handler.
+
+    Prefer xterm — the terminal actually bound in i3 (mod+Return) and themed via
+    ~/.Xresources. Left to its own devices i3-sensible-terminal picks
+    x-terminal-emulator, which on this box is gnome-terminal: it opens in a stock
+    (wrong-font) profile, and because it's dbus-activated, launching it from this
+    systemd service cold-starts gnome-terminal-server and the --wait window can
+    flash open and vanish. Setting $TERMINAL (which i3-sensible-terminal honors
+    first) sidesteps both; override with POMODORO_TERMINAL if desired.
     """
     env = dict(os.environ)
     env.setdefault("DISPLAY", ":0")
+    env.setdefault("TERMINAL", os.environ.get("POMODORO_TERMINAL", "xterm"))
     try:
         subprocess.Popen(
             ["i3-sensible-terminal", "-e", str(CLI), "reflect"],
