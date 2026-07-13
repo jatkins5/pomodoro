@@ -3,7 +3,8 @@
 
 Endpoints:
   GET  /status            -> JSON from `pomodoro status --json`
-  POST /toggle            -> run `pomodoro toggle` (optional body {task_id|task_text})
+  POST /toggle            -> run `pomodoro toggle`
+                             (optional body {task_id|task_text, mode:"easy"|"standard"})
   POST /stop              -> run `pomodoro stop`
   POST /skip              -> run `pomodoro skip`
   POST /reset             -> run `pomodoro reset`

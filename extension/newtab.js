@@ -480,8 +480,9 @@ async function onAction(event) {
   if (!path) return;
   event.currentTarget.disabled = true;
   let body;
-  if (path === "/toggle" && pomState?.status === "idle" && idleTaskText.trim()) {
-    body = { task_text: idleTaskText.trim() };
+  if (path === "/toggle" && pomState?.status === "idle") {
+    body = { mode: event.currentTarget.dataset.mode || "standard" };
+    if (idleTaskText.trim()) body.task_text = idleTaskText.trim();
   }
   pomState = await postAction(path, body);
   idleTaskText = "";
@@ -520,12 +521,25 @@ function render() {
         <div class="idle-task">
           <input type="text" id="idle-task-input" placeholder="What will you work on? (optional)" autocomplete="off">
         </div>
-        <button class="primary" data-action="/toggle">Start focus</button>
+        <div class="start-buttons">
+          <button class="primary" data-action="/toggle" data-mode="standard"
+                  title="25 min focus, 5 min breaks, 15 min long break">
+            <span class="start-name">Start focus</span>
+            <span class="start-detail">25 min</span>
+          </button>
+          <button class="primary easy" data-action="/toggle" data-mode="easy"
+                  title="Starts at a 5 min focus with 8 min breaks, ramping to the standard 25/5 over the first cycle">
+            <span class="start-name">Ease in</span>
+            <span class="start-detail">5 → 25 min</span>
+          </button>
+        </div>
       </div>`);
     const input = card.querySelector("#idle-task-input");
     input.value = idleTaskText;
     input.addEventListener("input", (e) => { idleTaskText = e.target.value; });
-    card.querySelector("button[data-action]").addEventListener("click", onAction);
+    for (const b of card.querySelectorAll("button[data-action]")) {
+      b.addEventListener("click", onAction);
+    }
     root.appendChild(card);
     return;
   }
@@ -533,15 +547,18 @@ function render() {
   const phaseLabel = pomState.phase.replace("_", " ");
   const running = pomState.status === "running";
   const color = pomState.color || "#eee";
+  const easy = pomState.mode === "easy";
+  const easyBadge = easy ? `<span class="mode-badge" title="Easy session — durations ramp up to standard">easy</span>` : "";
+  const phaseLen = pomState.phase_minutes ? ` · ${pomState.phase_minutes} min ${phaseLabel}` : "";
   const card = el(`
     <div class="card timer" style="border-color: ${color}">
-      <div class="phase" style="color: ${color}">${phaseLabel}${running ? "" : " — paused"}</div>
+      <div class="phase" style="color: ${color}">${phaseLabel}${running ? "" : " — paused"}${easyBadge}</div>
       <div class="task-slot"></div>
       <div class="time-row">
         <div class="time" id="time" style="color: ${color}">${fmtMmss(pomState.remaining)}</div>
         <button class="icon" data-action="/reset" title="Reset timer" aria-label="Reset timer">↻</button>
       </div>
-      <div class="meta">${pomState.focuses_today || 0} done today · cycle ${(pomState.completed_focuses % pomState.cycle_length) + (pomState.phase === "focus" ? 1 : 0)}/${pomState.cycle_length}</div>
+      <div class="meta">${pomState.focuses_today || 0} done today · cycle ${(pomState.completed_focuses % pomState.cycle_length) + (pomState.phase === "focus" ? 1 : 0)}/${pomState.cycle_length}${easy ? phaseLen : ""}</div>
       <div class="buttons">
         <button data-action="/toggle">${running ? "Pause" : "Resume"}</button>
         <button data-action="/skip">Skip</button>

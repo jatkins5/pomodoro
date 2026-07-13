@@ -3,6 +3,10 @@
 
 Subcommands:
   toggle      Start, pause, or resume the timer.
+  toggle --easy
+              Start an easy session: short focuses and longer breaks that ramp
+              up to standard lengths over the first cycle. Ignored if a session
+              is already running. Also settable as {"mode": "easy"} on stdin.
   stop        Cancel the current pomodoro entirely.
   skip        Skip the current phase and advance to the next.
   reset       Restart the current phase from the beginning.
@@ -94,6 +98,12 @@ DEFAULTS = {
     "focus_minutes": 25,
     "short_break_minutes": 5,
     "long_break_minutes": 15,
+    # "easy" mode: ease into the session with short focuses and generous breaks,
+    # ramping to standard lengths. Each list is indexed by how many focuses are
+    # already done; once past the end, the standard *_minutes values take over.
+    "easy_focus_ramp": [5, 10, 15, 20],
+    "easy_short_break_ramp": [8, 8, 7, 6],
+    "easy_long_break_minutes": 20,
     "cycle_length": 4,
     "auto_advance": True,
     "notify": True,
@@ -167,8 +177,34 @@ def log_event(event: str, **fields) -> None:
         f.write(json.dumps(entry) + "\n")
 
 
-def phase_seconds(cfg: dict, phase: str) -> int:
-    return int(cfg[f"{phase}_minutes"] * 60)
+def _ramp_minutes(cfg: dict, key: str, index: int, fallback_key: str) -> float:
+    """Look up a ramp step, falling back to the standard length past its end."""
+    ramp = cfg.get(key) or []
+    if 0 <= index < len(ramp):
+        return ramp[index]
+    return cfg[fallback_key]
+
+
+def phase_minutes(cfg: dict, phase: str, state: dict | None = None) -> float:
+    """Length of `phase` for this session, honoring easy mode's ramp.
+
+    Durations are derived from `completed_focuses`, which only changes at phase
+    boundaries — so a phase's length is fixed for as long as it is running.
+    """
+    if (state or {}).get("mode") != "easy":
+        return cfg[f"{phase}_minutes"]
+    done = state.get("completed_focuses", 0)
+    if phase == "focus":
+        # The focus about to run (or running) is number `done + 1`.
+        return _ramp_minutes(cfg, "easy_focus_ramp", done, "focus_minutes")
+    if phase == "short_break":
+        # This break follows focus number `done`.
+        return _ramp_minutes(cfg, "easy_short_break_ramp", done - 1, "short_break_minutes")
+    return cfg.get("easy_long_break_minutes", cfg["long_break_minutes"])
+
+
+def phase_seconds(cfg: dict, phase: str, state: dict | None = None) -> int:
+    return int(phase_minutes(cfg, phase, state) * 60)
 
 
 def notify(cfg: dict, summary: str, body: str = "") -> None:
@@ -315,13 +351,14 @@ def remaining(state: dict, cfg: dict) -> int:
     if state.get("paused_at") is not None:
         return int(state["remaining_at_pause"])
     elapsed = time.time() - state["phase_started_epoch"]
-    return max(0, phase_seconds(cfg, state["phase"]) - int(elapsed))
+    return max(0, phase_seconds(cfg, state["phase"], state) - int(elapsed))
 
 
 def advance_if_done(state: dict, cfg: dict) -> dict | None:
     while state is not None and state.get("paused_at") is None and remaining(state, cfg) == 0:
         ended = state["phase"]
-        ended_dur = phase_seconds(cfg, ended)
+        ended_dur = phase_seconds(cfg, ended, state)
+        mode = state.get("mode", "standard")
         prev_task_id = state.get("task_id")
         prev_task_text = state.get("task_text")
         log_event(
@@ -341,6 +378,7 @@ def advance_if_done(state: dict, cfg: dict) -> dict | None:
                 "completed_focuses": completed,
                 "paused_at": None,
                 "remaining_at_pause": None,
+                "mode": mode,
                 "task_id": prev_task_id,
                 "task_text": prev_task_text,
             }
@@ -348,7 +386,7 @@ def advance_if_done(state: dict, cfg: dict) -> dict | None:
             notify(
                 cfg,
                 f"{ended.replace('_', ' ').title()} complete",
-                f"Starting {np.replace('_', ' ')}",
+                f"Starting {np.replace('_', ' ')} ({phase_minutes(cfg, np, state):g} min)",
             )
             _apply_mute_for_phase(np)
             _apply_media_for_phase(np)
@@ -363,7 +401,8 @@ def advance_if_done(state: dict, cfg: dict) -> dict | None:
     return state
 
 
-def cmd_toggle(cfg: dict) -> None:
+def cmd_toggle(cfg: dict, args: list[str] | None = None) -> None:
+    args = args or []
     state = load_state()
     if state is None:
         body = read_stdin_json()
@@ -376,23 +415,30 @@ def cmd_toggle(cfg: dict) -> None:
         task_text = str(task_text).strip() if task_text else None
         if task_id is not None:
             task_text = None
+        mode = "easy" if ("--easy" in args or body.get("mode") == "easy") else "standard"
         new = {
             "phase": "focus",
             "phase_started_epoch": time.time(),
             "completed_focuses": 0,
             "paused_at": None,
             "remaining_at_pause": None,
+            "mode": mode,
             "task_id": task_id,
             "task_text": task_text,
         }
         save_state(new)
-        log_event("start", phase="focus", task_id=task_id, task_text=task_text)
-        notify(cfg, "Pomodoro started", "Focus 1")
+        log_event("start", phase="focus", mode=mode, task_id=task_id, task_text=task_text)
+        notify(
+            cfg,
+            "Pomodoro started",
+            f"Focus 1 ({phase_minutes(cfg, 'focus', new):g} min)"
+            + (" — easing in" if mode == "easy" else ""),
+        )
         enable_focus_mute()
         return
     state = advance_if_done(state, cfg)
     if state is None:
-        cmd_toggle(cfg)
+        cmd_toggle(cfg, args)
         return
     if state.get("paused_at") is None:
         rem = remaining(state, cfg)
@@ -454,6 +500,7 @@ def cmd_skip(cfg: dict) -> None:
         "completed_focuses": completed,
         "paused_at": None,
         "remaining_at_pause": None,
+        "mode": state.get("mode", "standard"),
         "task_id": state.get("task_id"),
         "task_text": state.get("task_text"),
     }
@@ -472,7 +519,7 @@ def cmd_reset(cfg: dict) -> None:
     state["phase_started_epoch"] = time.time()
     if state.get("paused_at") is not None:
         state["paused_at"] = time.time()
-        state["remaining_at_pause"] = phase_seconds(cfg, state["phase"])
+        state["remaining_at_pause"] = phase_seconds(cfg, state["phase"], state)
     save_state(state)
     notify(cfg, f"{state['phase'].replace('_', ' ').title()} reset")
     if state["phase"] == "focus":
@@ -534,6 +581,8 @@ def cmd_status(cfg: dict, mode: str) -> None:
             "completed_focuses": state.get("completed_focuses", 0),
             "cycle_length": int(cfg["cycle_length"]),
             "focuses_today": focuses_today,
+            "mode": state.get("mode", "standard"),
+            "phase_minutes": phase_minutes(cfg, state["phase"], state),
             "task": resolve_active_task(state, load_tasks()),
         }))
     elif mode == "i3blocks":
@@ -545,6 +594,8 @@ def cmd_status(cfg: dict, mode: str) -> None:
         done = state.get("completed_focuses", 0)
         label = state["phase"].replace("_", " ")
         suffix = " (paused)" if paused else ""
+        if state.get("mode") == "easy":
+            suffix += " [easy]"
         print(f"{label} {text} — {done % cycle if state['phase'] == 'focus' else done}/{cycle}{suffix}")
 
 
@@ -1935,7 +1986,7 @@ def main() -> None:
         sys.exit(1)
     cmd, rest = sys.argv[1], sys.argv[2:]
     if cmd == "toggle":
-        cmd_toggle(cfg)
+        cmd_toggle(cfg, rest)
     elif cmd == "stop":
         cmd_stop(cfg)
     elif cmd == "skip":
