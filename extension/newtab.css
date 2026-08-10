@@ -534,6 +534,13 @@ button.ghost:hover { background: #f2f2f2; color: #333; }
   color: #fff;
 }
 
+.filter-sep {
+  width: 1px;
+  align-self: stretch;
+  margin: 0.15rem 0.2rem;
+  background: #e3e3e3;
+}
+
 .parse-hint {
   display: flex;
   flex-wrap: wrap;

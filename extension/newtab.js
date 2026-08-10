@@ -42,6 +42,7 @@ let showCompleted = false;
 let editingTask = false;
 let idleTaskText = "";
 let activeTag = null;
+let todayOnly = localStorage.getItem("todayOnly") === "1";
 let editTaskId = null;
 let learningsToday = null;
 let recall = null;
@@ -587,6 +588,21 @@ function render() {
   }
 }
 
+function todayStr() {
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+// "Today" means anything wanting attention today: due or scheduled on or before
+// today. Overdue and left-over scheduled items are still today's problem, so
+// they stay in the view rather than hiding behind a date that has passed.
+function isForToday(t) {
+  const today = todayStr();
+  const onOrBefore = (iso) => !!iso && iso.slice(0, 10) <= today;
+  return onOrBefore(t.due_at) || onOrBefore(t.scheduled_at);
+}
+
 function compareTasks(a, b) {
   const ax = a.scheduled_at || a.due_at;
   const bx = b.scheduled_at || b.due_at;
@@ -664,7 +680,7 @@ async function onTaskAction(id, op) {
   refresh();
 }
 
-function renderTagFilter(pending) {
+function renderFilters(pending) {
   const counts = new Map();
   for (const t of pending) {
     for (const tag of (Array.isArray(t.tags) ? t.tags : [])) {
@@ -673,11 +689,25 @@ function renderTagFilter(pending) {
   }
   if (activeTag && !counts.has(activeTag)) activeTag = null;
   tagFilter.replaceChildren();
-  if (counts.size === 0) {
-    tagFilter.hidden = true;
-    return;
+
+  // Offer the today filter only once something is actually dated — but never
+  // strand the user with it switched on and no way to switch it back off.
+  const dueToday = pending.filter(isForToday).length;
+  const showToday = todayOnly || pending.some((t) => t.due_at || t.scheduled_at);
+  if (showToday) {
+    const btn = el(`<button class="filter-chip today${todayOnly ? " on" : ""}"
+      title="Only tasks due or scheduled for today (including overdue)">today (${dueToday})</button>`);
+    btn.addEventListener("click", () => {
+      todayOnly = !todayOnly;
+      localStorage.setItem("todayOnly", todayOnly ? "1" : "0");
+      renderTasks();
+    });
+    tagFilter.appendChild(btn);
   }
-  tagFilter.hidden = false;
+
+  tagFilter.hidden = !showToday && counts.size === 0;
+  if (counts.size === 0) return;
+  if (showToday) tagFilter.appendChild(el(`<span class="filter-sep"></span>`));
   const allBtn = el(`<button class="filter-chip${activeTag ? "" : " on"}">all</button>`);
   allBtn.addEventListener("click", () => { activeTag = null; renderTasks(); });
   tagFilter.appendChild(allBtn);
@@ -695,19 +725,27 @@ function renderTasks() {
   completedList.replaceChildren();
 
   const pending = tasksCache.filter((t) => !t.completed_at);
-  renderTagFilter(pending);
+  renderFilters(pending);
 
-  const match = (t) => !activeTag || (Array.isArray(t.tags) && t.tags.includes(activeTag));
+  const tagged = (t) => !activeTag || (Array.isArray(t.tags) && t.tags.includes(activeTag));
+  const match = (t) => tagged(t) && (!todayOnly || isForToday(t));
   const shortTerm = pending.filter((t) => !t.long_term && match(t)).sort(compareTasks);
   const longTerm = pending.filter((t) => t.long_term && match(t)).sort(compareTasks);
-  const completed = tasksCache.filter((t) => t.completed_at && match(t))
+  // In the today view, "completed" means what got finished today — an old task
+  // that happens to be dated today is not what you want to look back at.
+  const doneMatch = (t) => todayOnly
+    ? tagged(t) && (t.completed_at || "").slice(0, 10) === todayStr()
+    : match(t);
+  const completed = tasksCache.filter((t) => t.completed_at && doneMatch(t))
     .sort((a, b) => (b.completed_at || "").localeCompare(a.completed_at || ""));
 
   for (const t of shortTerm) pendingList.appendChild(renderTaskRow(t));
   for (const t of longTerm) longtermList.appendChild(renderTaskRow(t));
   for (const t of completed) completedList.appendChild(renderTaskRow(t));
 
-  emptyMsg.textContent = activeTag ? `No pending tasks tagged #${activeTag}.` : "No pending tasks.";
+  const scope = [todayOnly ? "for today" : "", activeTag ? `tagged #${activeTag}` : ""]
+    .filter(Boolean).join(" ");
+  emptyMsg.textContent = scope ? `No pending tasks ${scope}.` : "No pending tasks.";
   emptyMsg.classList.toggle("hidden", shortTerm.length + longTerm.length > 0);
   longtermSection.hidden = longTerm.length === 0;
 
@@ -715,7 +753,8 @@ function renderTasks() {
     completedSection.hidden = true;
   } else {
     completedSection.hidden = false;
-    completedToggle.textContent = `${showCompleted ? "Hide" : "Show"} ${completed.length} completed`;
+    completedToggle.textContent =
+      `${showCompleted ? "Hide" : "Show"} ${completed.length} completed${todayOnly ? " today" : ""}`;
     completedList.hidden = !showCompleted;
   }
 
