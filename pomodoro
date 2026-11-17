@@ -111,7 +111,7 @@ DEFAULTS = {
     "learning_nudge_hour": 21,
     "motd_model": "anthropic/claude-sonnet-4.6",
     "motd_base_url": "https://openrouter.ai/api/v1",
-    "reflect_model": "claude-opus-4-8",
+    "reflect_model": "claude-opus-5-5",
     "reflect_effort": "low",
     "review_root": str(Path.home()),
     "review_scan_depth": 4,
@@ -1920,7 +1920,7 @@ def _exec_claude_agent(cfg: dict, system: str, prompt: str, what: str) -> None:
 
     argv = [
         claude,
-        "--model", str(cfg.get("reflect_model", "claude-opus-4-8")),
+        "--model", str(cfg.get("reflect_model", "claude-opus-5-5")),
         "--effort", str(cfg.get("reflect_effort", "low")),
         "--append-system-prompt", system,
         prompt,
